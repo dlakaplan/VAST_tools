@@ -4,6 +4,7 @@ import os
 import argparse
 import glob
 import subprocess
+import tempfile
 import pandas
 from astropy import units as u, constants as c
 from astropy.table import Table
@@ -102,6 +103,35 @@ def shift_and_scale_image(
     return outname, outweight
 
 
+def swarp_files(files, output_file, output_weight):
+    cmd = "swarp -VMEM_MAX 4095 -MEM_MAX 2048 -COMBINE_BUFSIZE 2048"
+    cmd += " -IMAGEOUT_NAME {} -WEIGHTOUT_NAME {}".format(output_file, output_weight)
+    cmd += " -COMBINE Y -COMBINE_TYPE WEIGHTED -SUBTRACT_BACK N -WRITE_XML N"
+    cmd += " -FSCALASTRO_TYPE NONE"
+    cmd += " -WEIGHT_TYPE MAP_RMS -WEIGHT_SUFFIX .weight.fits -RESCALE_WEIGHTS Y"
+    cmd += " -PROJECTION_TYPE SIN "  # -CENTER_TYPE MANUAL -CENTER %s -IMAGE_SIZE %d,%d -PIXELSCALE_TYPE MANUAL -PIXEL_SCALE %.1f " %(dir_str, nx, ny, ps)
+    cmd += " %s" % (",".join(files))
+
+    log.info("Running:\n\t%s" % cmd)
+
+    p = subprocess.Popen(cmd.split(), stderr=subprocess.PIPE)
+    imagenum = 0
+
+    logfile = tempfile.TemporaryFile(mode="w", prefix="swarp")
+    for line in p.stderr:
+        line_str = line.decode("utf-8")
+        if not "line:" in line_str:
+            logfile.write(line_str)
+        if "-------------- File" in line_str:
+            currentimage = line_str.split()[-1].replace(":", "")
+            imagenum += 1
+            log.info("Working on image %04d/%04d..." % (imagenum, len(files)))
+        if "Co-adding frames" in line_str:
+            log.info("Coadding...")
+    logfile.close()
+    return True
+
+
 def main():
     log.setLevel("WARNING")
 
@@ -132,6 +162,13 @@ def main():
         default=None,
         type=int,
         help="Size of subimage (if specified)",
+    )
+    parser.add_argument(
+        "-p",
+        "--progressive",
+        default=False,
+        action="store_true",
+        help="Do progressive stack (incrementally output results)?",
     )
     parser.add_argument(
         "-c",
@@ -240,41 +277,31 @@ def main():
             todelete.append(outname)
             todelete.append(outweight)
 
+        files = glob.glob("{}/*.image.fits".format(args.out))
         output_file = os.path.join(args.out, "{}_mosaic.fits".format(field))
         output_weight = output_file.replace("_mosaic.fits", "_weight.fits")
 
+        if args.progressive:
+            istart = 0
+            for iend in range(istart + 1, len(files)):
+                log.info("Swarping files %02d to %02d" % (istart, iend))
+                output_file_step = output_file.replace(
+                    ".fits", "_%02d-%02d.fits" % (istart, iend)
+                )
+                output_weight_step = output_file_step.replace("_mosaic", "_weight")
+                result = swarp_files(
+                    files[istart:iend], output_file_step, output_weight_step
+                )
+                if result:
+                    log.info(
+                        "Wrote {} and {}".format(output_file_step, output_weight_step)
+                    )
+
         # module load /sharedapps/LS/cgca/Pkgsrc/pkg-2019Q2/etc/modulefiles/pkgsrc/2019Q2
         # to get swarp
-        cmd = "swarp -VMEM_MAX 4095 -MEM_MAX 2048 -COMBINE_BUFSIZE 2048"
-        cmd += " -IMAGEOUT_NAME {} -WEIGHTOUT_NAME {}".format(
-            output_file, output_weight
-        )
-        cmd += " -COMBINE Y -COMBINE_TYPE WEIGHTED -SUBTRACT_BACK N -WRITE_XML N"
-        cmd += " -FSCALASTRO_TYPE NONE"
-        cmd += " -WEIGHT_TYPE MAP_RMS -WEIGHT_SUFFIX .weight.fits -RESCALE_WEIGHTS Y"
-        cmd += " -PROJECTION_TYPE SIN "  # -CENTER_TYPE MANUAL -CENTER %s -IMAGE_SIZE %d,%d -PIXELSCALE_TYPE MANUAL -PIXEL_SCALE %.1f " %(dir_str, nx, ny, ps)
-        files = glob.glob("{}/*.image.fits".format(args.out))
-        cmd += " %s" % (",".join(files))
-
-        log.info(cmd)
-
-        p = subprocess.Popen(cmd.split(), stderr=subprocess.PIPE)
-        imagenum = 0
-        if os.path.exists("swarp.log"):
-            os.remove("swarp.log")
-        logfile = open("swarp.log", "w")
-        for line in p.stderr:
-            line_str = line.decode("utf-8")
-            if not "line:" in line_str:
-                logfile.write(line_str)
-            if "-------------- File" in line_str:
-                currentimage = line_str.split()[-1].replace(":", "")
-                imagenum += 1
-                log.info("Working on image %04d/%04d..." % (imagenum, len(files)))
-            if "Co-adding frames" in line_str:
-                log.info("Coadding...")
-        logfile.close()
-        log.info("Wrote {} and {}".format(output_file, output_weight))
+        result = swarp_files(files, output_file, output_weight)
+        if result:
+            log.info("Wrote {} and {}".format(output_file, output_weight))
 
         if args.clean:
             for filename in todelete:
