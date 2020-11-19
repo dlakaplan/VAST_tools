@@ -104,6 +104,10 @@ def shift_and_scale_image(
 
 
 def swarp_files(files, output_file, output_weight):
+    """
+    result = swarp_files(files, output_file, output_weight)
+    returns True if successful
+    """
     cmd = "swarp -VMEM_MAX 4095 -MEM_MAX 2048 -COMBINE_BUFSIZE 2048"
     cmd += " -IMAGEOUT_NAME {} -WEIGHTOUT_NAME {}".format(output_file, output_weight)
     cmd += " -COMBINE Y -COMBINE_TYPE WEIGHTED -SUBTRACT_BACK N -WRITE_XML N"
@@ -129,7 +133,7 @@ def swarp_files(files, output_file, output_weight):
         if "Co-adding frames" in line_str:
             log.info("Coadding...")
     logfile.close()
-    return True
+    return os.path.exists(output_file) and os.path.exists(output_weight)
 
 
 def main():
