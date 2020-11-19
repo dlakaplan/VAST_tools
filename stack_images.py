@@ -301,8 +301,9 @@ def main():
                         "Wrote {} and {}".format(output_file_step, output_weight_step)
                     )
 
-        # module load /sharedapps/LS/cgca/Pkgsrc/pkg-2019Q2/etc/modulefiles/pkgsrc/2019Q2
-        # to get swarp
+        # to get swarp:
+        # module use /sharedapps/LS/cgca/modulefiles/
+        # module load swarp
         result = swarp_files(files, output_file, output_weight)
         if result:
             log.info("Wrote {} and {}".format(output_file, output_weight))
