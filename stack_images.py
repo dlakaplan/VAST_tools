@@ -281,7 +281,7 @@ def main():
             todelete.append(outname)
             todelete.append(outweight)
 
-        files = glob.glob("{}/*.image.fits".format(args.out))
+        files = glob.glob("{}/*{}*.image.fits".format(args.out,field))
         output_file = os.path.join(args.out, "{}_mosaic.fits".format(field))
         output_weight = output_file.replace("_mosaic.fits", "_weight.fits")
 
@@ -307,6 +307,9 @@ def main():
         result = swarp_files(files, output_file, output_weight)
         if result:
             log.info("Wrote {} and {}".format(output_file, output_weight))
+        else:
+            log.warning("Error writing {} and {}".format(output_file, output_weight))
+
 
         if args.clean:
             for filename in todelete:
