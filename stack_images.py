@@ -135,7 +135,7 @@ def swarp_files(files, output_file, output_weight):
     logfile.close()
     # update header
     if os.path.exists(output_file):
-        f=fits.open(output_file,'w')
+        f=fits.open(output_file,mode='update')
         f[0].header['BUNIT']='Jy/beam'
         f.flush()
     return os.path.exists(output_file) and os.path.exists(output_weight)
@@ -180,6 +180,12 @@ def main():
         help="Do progressive stack (incrementally output results)?",
     )
     parser.add_argument(
+        "--suffix",
+        default=None,
+        type=str,
+        help="Suffix for output images [default=None]",
+        )
+    parser.add_argument(
         "-c",
         "--clean",
         default=False,
@@ -193,9 +199,11 @@ def main():
     args = parser.parse_args()
     if args.verbosity == 1:
         log.setLevel("INFO")
-    elif args.verbosity == 2:
+    elif args.verbosity >= 2:
         log.setLevel("DEBUG")
 
+    log.debug("Running\n\t%s" % " ".join(map(str,sys.argv)))
+        
     if not os.path.exists(args.qc):
         raise FileError("Cannot open VAST QC file '%s'" % args.qc)
 
@@ -220,7 +228,8 @@ def main():
             rmsmaps = [f.replace("STOKESI_IMAGES", "STOKESI_RMSMAPS") for f in rmsmaps]
 
         log.info("Found {} images for field {}".format(len(files), field))
-
+        log.debug("Images: {}".format(",".join(files)))
+        
         # go through and make temporary files with the scales and offsets applied
         # also make the weight maps ~ rms**2
         for filename, rmsmap in zip(files, rmsmaps):
@@ -290,6 +299,10 @@ def main():
         output_file = os.path.join(args.out, "{}_mosaic.fits".format(field))
         output_weight = output_file.replace("_mosaic.fits", "_weight.fits")
 
+        if (args.suffix is not None) and (len(args.suffix)>0):
+            output_file=output_file.replace(".fits","_{}.fits".format(args.suffix))
+            output_weight=output_weight.replace(".fits","_{}.fits".format(args.suffix))
+        
         if args.progressive:
             istart = 0
             for iend in range(istart + 1, len(files)):
