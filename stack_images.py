@@ -133,6 +133,11 @@ def swarp_files(files, output_file, output_weight):
         if "Co-adding frames" in line_str:
             log.info("Coadding...")
     logfile.close()
+    # update header
+    if os.path.exists(output_file):
+        f=fits.open(output_file,'w')
+        f[0].header['BUNIT']='Jy/beam'
+        f.flush()
     return os.path.exists(output_file) and os.path.exists(output_weight)
 
 
