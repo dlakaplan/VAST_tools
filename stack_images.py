@@ -194,7 +194,7 @@ def main():
     )
     parser.add_argument(
         "--nooffset",
-        default=False
+        default=False,
         action="store_true",
         help="Do not use flux offset?",
         )
@@ -260,7 +260,7 @@ def main():
             )
             if args.nooffset:
                 log.debug("Setting offset to 0...")
-                flux_offset = 0
+                flux_offset = np.zeros(len(flux_offset))
             ra_offset = table_offsets[
                 (table_offsets["image"] == field) & (table_offsets["epoch"] == epoch)
             ]["ra_offset_median"]
