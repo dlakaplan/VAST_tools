@@ -193,6 +193,12 @@ def main():
         help="Clean temporary files?",
     )
     parser.add_argument(
+        "--nooffset",
+        default=False
+        action="store_true",
+        help="Do not use flux offset?",
+        )
+    parser.add_argument(
         "-v", "--verbosity", action="count", help="Increase output verbosity"
     )
 
@@ -252,6 +258,9 @@ def main():
                 ]["flux_ratio_fitted_offset"]
                 * 1e-3
             )
+            if args.nooffset:
+                log.debug("Setting offset to 0...")
+                flux_offset = 0
             ra_offset = table_offsets[
                 (table_offsets["image"] == field) & (table_offsets["epoch"] == epoch)
             ]["ra_offset_median"]
