@@ -238,6 +238,7 @@ def main():
         
         # go through and make temporary files with the scales and offsets applied
         # also make the weight maps ~ rms**2
+        files = []
         for filename, rmsmap in zip(files, rmsmaps):
             # might need to make this more robust
             # this is the name of the epoch in the QC table
@@ -303,8 +304,8 @@ def main():
             log.info("Wrote {} and {}".format(outname, outweight))
             todelete.append(outname)
             todelete.append(outweight)
-
-        files = glob.glob("{}/*{}*.image.fits".format(args.out,field))
+            files.append(outname)
+            
         output_file = os.path.join(args.out, "{}_mosaic.fits".format(field))
         output_weight = output_file.replace("_mosaic.fits", "_weight.fits")
 
