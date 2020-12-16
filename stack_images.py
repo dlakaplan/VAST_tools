@@ -238,7 +238,7 @@ def main():
         
         # go through and make temporary files with the scales and offsets applied
         # also make the weight maps ~ rms**2
-        files = []
+        scaledfiles = []
         for filename, rmsmap in zip(files, rmsmaps):
             # might need to make this more robust
             # this is the name of the epoch in the QC table
@@ -304,7 +304,7 @@ def main():
             log.info("Wrote {} and {}".format(outname, outweight))
             todelete.append(outname)
             todelete.append(outweight)
-            files.append(outname)
+            scaledfiles.append(outname)
             
         output_file = os.path.join(args.out, "{}_mosaic.fits".format(field))
         output_weight = output_file.replace("_mosaic.fits", "_weight.fits")
@@ -322,7 +322,7 @@ def main():
                 )
                 output_weight_step = output_file_step.replace("_mosaic", "_weight")
                 result = swarp_files(
-                    files[istart:iend], output_file_step, output_weight_step
+                    scaledfiles[istart:iend], output_file_step, output_weight_step
                 )
                 if result:
                     log.info(
@@ -332,7 +332,7 @@ def main():
         # to get swarp:
         # module use /sharedapps/LS/cgca/modulefiles/
         # module load swarp
-        result = swarp_files(files, output_file, output_weight)
+        result = swarp_files(scaledfiles, output_file, output_weight)
         if result:
             log.info("Wrote {} and {}".format(output_file, output_weight))
         else:
