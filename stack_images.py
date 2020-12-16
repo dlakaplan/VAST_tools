@@ -173,7 +173,7 @@ def main():
         )
     parser.add_argument(
         "--scale",
-        default=None
+        default=None,
         type=float,
         help="Flux scaling (default is to use the QC file)",
         )
@@ -275,7 +275,7 @@ def main():
                 log.debug("Setting offset to 0...")
                 flux_offset = np.zeros(len(flux_offset))
             if args.offset is not None:
-                log.debug("Setting offset to {:.1f} mJy...".format(args.offset))
+                log.debug("Setting offset to {:.3f} mJy...".format(args.offset))
                 flux_offset = np.ones(len(flux_offset))*args.offset
             if args.scale is not None:
                 log.debug("Setting scale to {:.3f}...".format(args.scale))
