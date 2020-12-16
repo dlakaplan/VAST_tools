@@ -166,6 +166,18 @@ def main():
         help="VAST Pilot QC file",
     )
     parser.add_argument(
+        "--offset",
+        default=None,
+        type=float,
+        help="Flux offset [mJy] (default is to use the QC file)",
+        )
+    parser.add_argument(
+        "--scale",
+        default=None
+        type=float,
+        help="Flux scaling (default is to use the QC file)",
+        )
+    parser.add_argument(
         "-s",
         "--subimage",
         default=None,
@@ -262,6 +274,12 @@ def main():
             if args.nooffset:
                 log.debug("Setting offset to 0...")
                 flux_offset = np.zeros(len(flux_offset))
+            if args.offset is not None:
+                log.debug("Setting offset to {:.1f} mJy...".format(args.offset))
+                flux_offset = np.ones(len(flux_offset))*args.offset
+            if args.scale is not None:
+                log.debug("Setting scale to {:.3f}...".format(args.scale))
+                flux_scale = np.ones(len(flux_offset))*args.scale                
             ra_offset = table_offsets[
                 (table_offsets["image"] == field) & (table_offsets["epoch"] == epoch)
             ]["ra_offset_median"]
