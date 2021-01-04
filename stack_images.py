@@ -6,6 +6,7 @@ import glob
 import subprocess
 import tempfile
 import pandas
+import re
 from astropy import units as u, constants as c
 from astropy.table import Table
 from astropy.io import fits
@@ -14,6 +15,15 @@ from astropy.coordinates import SkyCoord
 from astropy.nddata import Cutout2D
 from astropy import log
 
+
+table_names={'tiles': {'position': "Positional Offsets Tiles",
+                       'flux': "Flux Ratios Tiles"},
+             "combined": {'position': "Positional Offsets Combined",
+                               'flux': "Flux Ratios Combined"},}
+column_names = {'ra': 'ra_offset_median',
+                'dec': 'dec_offset_median',
+                'flux_offset': 'flux_ratio_fitted_offset',
+                'flux_gradient': 'flux_ratio_fitted_gradient'}
 
 def shift_and_scale_image(
     imagename,
@@ -235,20 +245,8 @@ def main():
     if not os.path.exists(args.qc):
         raise FileError("Cannot open VAST QC file '%s'" % args.qc)
 
-    if args.imagetype  == "combined":
-        table_offsets = Table.from_pandas(
-            pandas.read_excel(args.qc, sheet_name="Positional Offsets Combined")
-        )
-        table_fluxes = Table.from_pandas(
-            pandas.read_excel(args.qc, sheet_name="Flux Ratios Combined")
-        )
-    elif args.imagetype == "tiles":
-        table_offsets = Table.from_pandas(
-            pandas.read_excel(args.qc, sheet_name="Positional Offsets Tiles")
-        )
-        table_fluxes = Table.from_pandas(
-            pandas.read_excel(args.qc, sheet_name="Flux Ratios Tiles")
-        )
+    table_offsets = Table.from_pandas( pandas.read_excel(args.qc, sheet_name = table_names[args.imagetype]['position']))
+    table_fluxes = Table.from_pandas( pandas.read_excel(args.qc, sheet_name = table_names[args.imagetype]['flux']))
         
     if not (os.path.exists(args.out) and os.path.isdir(args.out)):
         log.info("Creating output directory '%s'" % args.out)
@@ -259,11 +257,15 @@ def main():
         if args.imagetype == 'combined':
             files = sorted(
                 glob.glob(os.path.join(args.imagepath, "VAST_{}*I.fits".format(field),))
+            ) + sorted(
+            glob.glob(os.path.join(args.imagepath, "RACS_{}*I.fits".format(field),))
             )
             rmsmaps = [f.replace("I.fits", "I_rms.fits") for f in files]
             if "STOKESI_IMAGES" in args.imagepath:
                 rmsmaps = [f.replace("STOKESI_IMAGES", "STOKESI_RMSMAPS") for f in rmsmaps]
         elif args.imagetype == 'tiles':
+            # this is VAST and not RACS
+            # because we don't have RACS RMS maps
             files = sorted(glob.glob(os.path.join(args.imagepath,"*VAST_{}*restored.fits".format(field),)))
             rmsmaps = [f.replace("image.i","noiseMap.image.i") for f in files]
             if "STOKESI_IMAGES" in args.imagepath:
@@ -278,30 +280,24 @@ def main():
         for filename, rmsmap in zip(files, rmsmaps):
             # might need to make this more robust
             # this is the name of the epoch in the QC table
-            if args.imagetype == "combined":
-                epoch = (
-                    os.path.split(filename)[-1]
-                    .split(".")[1]
-                    .replace("EPOCH", "vastp")
-                    .replace("p0", "p")
-                )
-            else:
-                epoch = (
-                    os.path.split(filename)[0]
-                    .split('/')[0]
-                    .replace("EPOCH", "vastp")
-                    .replace("p0", "p")
-                )
+            match = re.match(r'EPOCH(\d{2})(x?)',filename)
+            if match is None:
+                log.error("Cannot infer epoch number from file '{}'".format(filename))
+                next
+            epoch = match.group().replace("EPOCH", "vastp").replace("p0", "p")
+            log.debug("Infered '{}' for file '{}': will look up QC for '{}'".format(match.group(),
+                                                                                    filename,
+                                                                                    epoch))
                 
             # corrected flux = (raw flux - offset) / gradient
             flux_scale = table_fluxes[
                 (table_fluxes["image"] == field) & (table_fluxes["epoch"] == epoch)
-            ]["flux_ratio_fitted_gradient"]
+            ][column_names['flux_gradient']]
             # original offsets are in mJy
             flux_offset = (
                 table_fluxes[
                     (table_fluxes["image"] == field) & (table_fluxes["epoch"] == epoch)
-                ]["flux_ratio_fitted_offset"]
+                ][column_names['flux_offset']]
                 * 1e-3
             )
             if args.nooffset:
@@ -315,10 +311,10 @@ def main():
                 flux_scale = np.ones(len(flux_offset))*args.scale                
             ra_offset = table_offsets[
                 (table_offsets["image"] == field) & (table_offsets["epoch"] == epoch)
-            ]["ra_offset_median"]
+            ][column_names['ra']]
             dec_offset = table_offsets[
                 (table_offsets["image"] == field) & (table_offsets["epoch"] == epoch)
-            ]["dec_offset_median"]
+            ][column_names['dec']]
             if (
                 len(flux_scale) == 1
                 and len(flux_offset) == 1
