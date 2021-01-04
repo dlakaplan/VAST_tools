@@ -119,9 +119,9 @@ def shift_and_scale_image(
     return outname, outweight
 
 
-def swarp_files(files, output_file, output_weight):
+def swarp_files(files, output_file, output_weight, headerinfo={}):
     """
-    result = swarp_files(files, output_file, output_weight)
+    result = swarp_files(files, output_file, output_weight, headerinfo={})
     returns True if successful
     """
     cmd = "swarp -VMEM_MAX 4095 -MEM_MAX 2048 -COMBINE_BUFSIZE 2048"
@@ -153,6 +153,8 @@ def swarp_files(files, output_file, output_weight):
     if os.path.exists(output_file):
         f=fits.open(output_file,mode='update')
         f[0].header['BUNIT']='Jy/beam'
+        for k in headerinfo:
+            f[0].header[k]=headerinfo[k]
         f.flush()
     return os.path.exists(output_file) and os.path.exists(output_weight)
 
@@ -290,7 +292,10 @@ def main():
         # go through and make temporary files with the scales and offsets applied
         # also make the weight maps ~ rms**2
         scaledfiles = []
-        for filename, rmsmap in zip(files, rmsmaps):
+        headerinfo = {}
+        for i, (filename, rmsmap) in enumerate(zip(files, rmsmaps)):
+            headerinfo['IMG%02d' % i] = (filename,"Filename for image %02d" % i)
+            headerinfo['RMS%02d' % i] = (rmsmap,"RMS Map name for image %02d" % i)
             # might need to make this more robust
             # this is the name of the epoch in the QC table
             match = re.match(r'EPOCH(\d{2})(x?)',filename)
@@ -356,7 +361,11 @@ def main():
                 flux_offset = 0
                 ra_offset = 0
                 dec_offset = 0
-
+            headerinfo['RAOFF%02d' % i] = (ra_offset,"[ARCSEC] RA Offset for image %02d" % i)
+            headerinfo['DECOFF%02d' % i] = (dec_offset,"[ARCSEC] DEC Offset for image %02d" % i)
+            headerinfo['FLXSCL%02d' % i] = (flux_scale,"Flux scale for image %02d" % i)
+            headerinfo['FLXOFF%02d' % i] = (flux_offset,"[Jy] Flux offset for image %02d" % i)
+            
             outname, outweight = shift_and_scale_image(
                 filename,
                 rmsmap,
@@ -389,7 +398,7 @@ def main():
                 )
                 output_weight_step = output_file_step.replace("_mosaic", "_weight")
                 result = swarp_files(
-                    scaledfiles[istart:iend], output_file_step, output_weight_step
+                    scaledfiles[istart:iend], output_file_step, output_weight_step, headerinfo                    
                 )
                 if result:
                     log.info(
@@ -399,7 +408,7 @@ def main():
         # to get swarp:
         # module use /sharedapps/LS/cgca/modulefiles/
         # module load swarp
-        result = swarp_files(scaledfiles, output_file, output_weight)
+        result = swarp_files(scaledfiles, output_file, output_weight, headerinfo=headerinfo)
         if result:
             log.info("Wrote {} and {}".format(output_file, output_weight))
         else:
