@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import pandas
 import re
+import xlrd
 from astropy import units as u, constants as c
 from astropy.table import Table
 from astropy.io import fits
@@ -245,8 +246,18 @@ def main():
     if not os.path.exists(args.qc):
         raise FileError("Cannot open VAST QC file '%s'" % args.qc)
 
-    table_offsets = Table.from_pandas( pandas.read_excel(args.qc, sheet_name = table_names[args.imagetype]['position']))
-    table_fluxes = Table.from_pandas( pandas.read_excel(args.qc, sheet_name = table_names[args.imagetype]['flux']))
+    try:
+        table_offsets = Table.from_pandas( pandas.read_excel(args.qc, sheet_name = table_names[args.imagetype]['position']))
+    except xlrd.biffh.XLRDError:
+        log.warning("Unable to read table '{}' from sheet '{}': ignoring positional offsets".format(table_names[args.imagetype]['position'],
+                                                                                                    args.qc))
+        table_offsets = None
+    try:
+        table_fluxes = Table.from_pandas( pandas.read_excel(args.qc, sheet_name = table_names[args.imagetype]['flux']))
+    except xlrd.biffh.XLRDError:
+        log.warning("Unable to read table '{}' from sheet '{}': ignoring flux scalings".format(table_names[args.imagetype]['flux'],
+                                                                                               args.qc))
+        table_fluxes = None
         
     if not (os.path.exists(args.out) and os.path.isdir(args.out)):
         log.info("Creating output directory '%s'" % args.out)
@@ -288,18 +299,21 @@ def main():
             log.debug("Infered '{}' for file '{}': will look up QC for '{}'".format(match.group(),
                                                                                     filename,
                                                                                     epoch))
-                
-            # corrected flux = (raw flux - offset) / gradient
-            flux_scale = table_fluxes[
-                (table_fluxes["image"] == field) & (table_fluxes["epoch"] == epoch)
-            ][column_names['flux_gradient']]
-            # original offsets are in mJy
-            flux_offset = (
-                table_fluxes[
+            if table_fluxes is not None:
+                # corrected flux = (raw flux - offset) / gradient
+                flux_scale = table_fluxes[
                     (table_fluxes["image"] == field) & (table_fluxes["epoch"] == epoch)
-                ][column_names['flux_offset']]
-                * 1e-3
-            )
+                ][column_names['flux_gradient']]
+                # original offsets are in mJy
+                flux_offset = (
+                    table_fluxes[
+                        (table_fluxes["image"] == field) & (table_fluxes["epoch"] == epoch)
+                    ][column_names['flux_offset']]
+                    * 1e-3
+                )
+            else:
+                flux_offset = np.zeros(1)
+                flux_scale = np.ones(1)
             if args.nooffset:
                 log.debug("Setting offset to 0...")
                 flux_offset = np.zeros(len(flux_offset))
@@ -309,12 +323,16 @@ def main():
             if args.scale is not None:
                 log.debug("Setting scale to {:.3f}...".format(args.scale))
                 flux_scale = np.ones(len(flux_offset))*args.scale                
-            ra_offset = table_offsets[
-                (table_offsets["image"] == field) & (table_offsets["epoch"] == epoch)
-            ][column_names['ra']]
-            dec_offset = table_offsets[
-                (table_offsets["image"] == field) & (table_offsets["epoch"] == epoch)
-            ][column_names['dec']]
+            if table_offsets is not None:
+                ra_offset = table_offsets[
+                    (table_offsets["image"] == field) & (table_offsets["epoch"] == epoch)
+                ][column_names['ra']]
+                dec_offset = table_offsets[
+                    (table_offsets["image"] == field) & (table_offsets["epoch"] == epoch)
+                ][column_names['dec']]
+            else:
+                ra_offset = np.zeros(1)
+                dec_offset = np.zeros(1)
             if (
                 len(flux_scale) == 1
                 and len(flux_offset) == 1
