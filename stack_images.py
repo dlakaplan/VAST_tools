@@ -48,6 +48,9 @@ def shift_and_scale_image(
 
     fimg = fits.open(imagename)
     frms = fits.open(rmsimagename)
+    if fimg[0].header['NAXIS']==4:
+        fimg[0].data=fimg[0].data[0,0]
+        frms[0].data=frms[0].data[0,0]        
     # do the flux scaling
     fimg[0].data = (fimg[0].data - flux_offset) / flux_scale
     fimg[0].header["FLUXOFF"] = flux_offset
@@ -55,7 +58,7 @@ def shift_and_scale_image(
     frms[0].data = (frms[0].data) / flux_scale
     frms[0].header["FLUXOFF"] = flux_offset
     frms[0].header["FLUXSCL"] = flux_scale
-    w = WCS(fimg[0].header)
+    w = WCS(fimg[0].header,naxis=2)
     # add the offsets to correct the positions
     # use SkyCoord to handle units and wraps
     # the new coordinates should be old coordintes + offset
@@ -211,6 +214,13 @@ def main():
         help="Do not use flux offset?",
         )
     parser.add_argument(
+        "--type",
+        dest='imagetype',
+        default="tiles",
+        choices=["tiles","combined"],
+        help="Type of images to combine",
+        )
+    parser.add_argument(
         "-v", "--verbosity", action="count", help="Increase output verbosity"
     )
 
@@ -225,26 +235,40 @@ def main():
     if not os.path.exists(args.qc):
         raise FileError("Cannot open VAST QC file '%s'" % args.qc)
 
-    table_offsets = Table.from_pandas(
-        pandas.read_excel(args.qc, sheet_name="Positional Offsets Combined")
-    )
-    table_fluxes = Table.from_pandas(
-        pandas.read_excel(args.qc, sheet_name="Flux Ratios Combined")
-    )
-
+    if args.imagetype  == "combined":
+        table_offsets = Table.from_pandas(
+            pandas.read_excel(args.qc, sheet_name="Positional Offsets Combined")
+        )
+        table_fluxes = Table.from_pandas(
+            pandas.read_excel(args.qc, sheet_name="Flux Ratios Combined")
+        )
+    elif args.imagetype == "tiles":
+        table_offsets = Table.from_pandas(
+            pandas.read_excel(args.qc, sheet_name="Positional Offsets Tiles")
+        )
+        table_fluxes = Table.from_pandas(
+            pandas.read_excel(args.qc, sheet_name="Flux Ratios Tiles")
+        )
+        
     if not (os.path.exists(args.out) and os.path.isdir(args.out)):
         log.info("Creating output directory '%s'" % args.out)
         os.mkdir(args.out)
 
     todelete = []
     for field in args.fields:
-        files = sorted(
-            glob.glob(os.path.join(args.imagepath, "VAST_{}*I.fits".format(field),))
-        )
-        rmsmaps = [f.replace("I.fits", "I_rms.fits") for f in files]
-        if "STOKESI_IMAGES" in args.imagepath:
-            rmsmaps = [f.replace("STOKESI_IMAGES", "STOKESI_RMSMAPS") for f in rmsmaps]
-
+        if args.imagetype == 'combined':
+            files = sorted(
+                glob.glob(os.path.join(args.imagepath, "VAST_{}*I.fits".format(field),))
+            )
+            rmsmaps = [f.replace("I.fits", "I_rms.fits") for f in files]
+            if "STOKESI_IMAGES" in args.imagepath:
+                rmsmaps = [f.replace("STOKESI_IMAGES", "STOKESI_RMSMAPS") for f in rmsmaps]
+        elif args.imagetype == 'tiles':
+            files = sorted(glob.glob(os.path.join(args.imagepath,"*VAST_{}*restored.fits".format(field),)))
+            rmsmaps = [f.replace("image.i","noiseMap.image.i") for f in files]
+            if "STOKESI_IMAGES" in args.imagepath:
+                rmsmaps = [f.replace("STOKESI_IMAGES", "STOKESI_RMSMAPS") for f in rmsmaps]
+            
         log.info("Found {} images for field {}".format(len(files), field))
         log.debug("Images: {}".format(",".join(files)))
         
@@ -254,12 +278,21 @@ def main():
         for filename, rmsmap in zip(files, rmsmaps):
             # might need to make this more robust
             # this is the name of the epoch in the QC table
-            epoch = (
-                os.path.split(filename)[-1]
-                .split(".")[1]
-                .replace("EPOCH", "vastp")
-                .replace("p0", "p")
-            )
+            if args.imagetype == "combined":
+                epoch = (
+                    os.path.split(filename)[-1]
+                    .split(".")[1]
+                    .replace("EPOCH", "vastp")
+                    .replace("p0", "p")
+                )
+            else:
+                epoch = (
+                    os.path.split(filename)[0]
+                    .split('/')[0]
+                    .replace("EPOCH", "vastp")
+                    .replace("p0", "p")
+                )
+                
             # corrected flux = (raw flux - offset) / gradient
             flux_scale = table_fluxes[
                 (table_fluxes["image"] == field) & (table_fluxes["epoch"] == epoch)
