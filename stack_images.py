@@ -11,11 +11,11 @@ import xlrd
 from astropy import units as u, constants as c
 from astropy.table import Table
 from astropy.io import fits
-from astropy.wcs import WCS
+from astropy.wcs import WCS, FITSFixedWarning
 from astropy.coordinates import SkyCoord
 from astropy.nddata import Cutout2D
 from astropy import log
-
+import warnings
 
 table_names={'tiles': {'position': "Positional Offsets Tiles",
                        'flux': "Flux Ratios Tiles"},
@@ -25,6 +25,8 @@ column_names = {'ra': 'ra_offset_median',
                 'dec': 'dec_offset_median',
                 'flux_offset': 'flux_ratio_fitted_offset',
                 'flux_gradient': 'flux_ratio_fitted_gradient'}
+
+warnings.filterwarnings("ignore",category=FITSFixedWarning)
 
 def shift_and_scale_image(
     imagename,
