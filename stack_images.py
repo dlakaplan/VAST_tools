@@ -206,14 +206,14 @@ def measure_beamsize(image, default_beam=15 * u.arcsec, clean=True):
     step_size = (int(pixels_per_beam * 4), int(pixels_per_beam * 4))
     box_size = (step_size[0] * 5, step_size[1] * 5)
     # BANE output
-    bkg_image = "{}_bkg.fits".format(out_base)
-    rms_image = "{}_rms.fits".format(out_base)
+    bkg_image = "{}_bkg.fits".format(basename)
+    rms_image = "{}_rms.fits".format(basename)
     if os.path.exists(bkg_image):
         os.remove(bkg_image)
     if os.path.exists(rms_image):
         os.remove(rms_image)
     BANE.filter_image(
-        im_name=image, step_size=step_size, box_size=box_size, out_base=out_base,
+        im_name=image, step_size=step_size, box_size=box_size, out_base=basename,
     )
     if not os.path.exists(rms_image):
         log.error("Cannot find BANE output '{}'".format(rms_image))
