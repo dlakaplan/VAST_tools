@@ -189,8 +189,8 @@ def measure_beamsize(image, default_beam=15 * u.arcsec, clean=True):
     import AegeanTools
     from AegeanTools.source_finder import SourceFinder
     from AegeanTools.wcs_helpers import Beam
-    from AegeanTools import BANE
-
+    from AegeanTools.BANE import filter_image
+    
     basename = os.path.splitext(image)[0]
 
     # figure out the number of pixels per synthesized beam
@@ -212,7 +212,7 @@ def measure_beamsize(image, default_beam=15 * u.arcsec, clean=True):
         os.remove(bkg_image)
     if os.path.exists(rms_image):
         os.remove(rms_image)
-    BANE.filter_image(
+    filter_image(
         im_name=image, step_size=step_size, box_size=box_size, out_base=basename,
     )
     if not os.path.exists(rms_image):
@@ -240,6 +240,8 @@ def measure_beamsize(image, default_beam=15 * u.arcsec, clean=True):
     a = np.array(a) * u.arcsec
     b = np.array(b) * u.arcsec
     pa = np.array(pa) * u.deg
+    print("a median/rms: {}, {}".format(np.median(a),np.std(a)))
+    print("b median/rms: {}, {}".format(np.median(b),np.std(b)))
     if clean:
         os.remove(bkg_image)
         os.remove(rms_image)
