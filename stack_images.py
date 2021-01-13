@@ -106,12 +106,17 @@ def shift_and_scale_image(
         cutout_rms = Cutout2D(frms[0].data.squeeze(), center, subimage, wcs=w.celestial)
         # replace original data, adding singleton Stokes, Freq dims if necessary
         if not squeeze_output:
-            cutout.data = np.expand_dims(
-                cutout.data, axis=[i for i in range(fimg_ndim - cutout.data.ndim)]
+            log.debug(
+                "Ensuring cutout ndim (%d) matches input image ndim (%d)"
+                % (cutout.data.ndim, fimg_ndim)
             )
-            cutout_rms.data = np.expand_dims(
-                cutout_rms.data,
-                axis=[i for i in range(frms_ndim - cutout_rms.data.ndim)],
+            for _ in range(fimg_ndim - cutout.data.ndim):
+                cutout.data = np.expand_dims(cutout.data, axis=0)
+            for _ in range(frms_ndim - cutout_rms.data.ndim):
+                cutout_rms.data = np.expand_dims(cutout_rms.data, axis=0)
+            log.debug(
+                "New cutout ndim: %d cutout rms ndim: %d."
+                % (cutout.data.ndim, cutout_rms.data.ndim)
             )
         fimg[0].data = cutout.data
         frms[0].data = cutout_rms.data
