@@ -176,6 +176,76 @@ def swarp_files(files, output_file, output_weight, headerinfo={}):
     return os.path.exists(output_file) and os.path.exists(output_weight)
 
 
+def measure_beamsize(image, default_beam=15 * u.arcsec, clean=True):
+    """
+    BMAJ, BMIN, BPA = measure_beamsize(image, default_beam = 15*u.arcsec, clean=True)
+
+    use Aegean to find and measure sources
+    return the median major axis, minor axis, and position angle
+
+    will create BANE background and rms images.   If clean, will delete them after.
+    """
+
+    import AegeanTools
+    from AegeanTools.source_finder import SourceFinder
+    from AegeanTools.wcs_helpers import Beam
+    from AegeanTools import BANE
+
+    basename = os.path.splitext(image)[0]
+
+    # figure out the number of pixels per synthesized beam
+    # of course we don't know the synthesized beam, but guess
+    f = fits.open(image)
+    w = WCS(f[0].header)
+    pixels_per_beam = (default_beam / (w.wcs.cd[1, 1] * u.deg)).decompose().value
+    # construct a Beam object
+    default_beam = Beam(default_beam.to(u.deg).value, default_beam.to(u.deg).value, 0)
+    # figure out step/box sizes for BANE
+    # defaults are grid = 4*beam size
+    # and box = 5*grid
+    step_size = (int(pixels_per_beam * 4), int(pixels_per_beam * 4))
+    box_size = (step_size[0] * 5, step_size[1] * 5)
+    # BANE output
+    bkg_image = "{}_bkg.fits".format(out_base)
+    rms_image = "{}_rms.fits".format(out_base)
+    if os.path.exists(bkg_image):
+        os.remove(bkg_image)
+    if os.path.exists(rms_image):
+        os.remove(rms_image)
+    BANE.filter_image(
+        im_name=image, step_size=step_size, box_size=box_size, out_base=out_base,
+    )
+    if not os.path.exists(rms_image):
+        log.error("Cannot find BANE output '{}'".format(rms_image))
+        return None, None, None
+    if not os.path.exists(bkg_image):
+        log.error("Cannot find BANE output '{}'".format(bkg_image))
+        return None, None, None
+    log.debug("BANE wrote {}, {}".format(rms_image, bkg_image))
+    sf = SourceFinder()
+    found = sf.find_sources_in_image(
+        image, beam=default_beam, bkgin=bkg_image, rmsin=rms_image
+    )
+    if len(found) == 0:
+        log.error("Aegean did not find any sources")
+        return None, None, None
+    log.info("Aegean found {} sources".format(len(found)))
+    a = []
+    b = []
+    pa = []
+    for s in found:
+        a.append(s.a)
+        b.append(s.b)
+        pa.append(s.pa)
+    a = np.array(a) * u.arcsec
+    b = np.array(b) * u.arcsec
+    pa = np.array(pa) * u.deg
+    if clean:
+        os.remove(bkg_image)
+        os.remove(rms_image)
+    return np.median(a).to(u.deg), np.median(b).to(u.deg), np.median(pa)
+
+
 def main():
     log.setLevel("WARNING")
 
@@ -189,11 +259,7 @@ def main():
         help="Field name(s) without survey prefix. e.g. 0012+00A.",
     )
     parser.add_argument(
-        "-o",
-        "--out",
-        default="temp",
-        type=str,
-        help="Ouptut directory",
+        "-o", "--out", default="temp", type=str, help="Ouptut directory",
     )
     parser.add_argument(
         "-i",
@@ -310,19 +376,9 @@ def main():
     for field in args.fields:
         if args.imagetype == "combined":
             files = sorted(
-                glob.glob(
-                    os.path.join(
-                        args.imagepath,
-                        "VAST_{}*I.fits".format(field),
-                    )
-                )
+                glob.glob(os.path.join(args.imagepath, "VAST_{}*I.fits".format(field),))
             ) + sorted(
-                glob.glob(
-                    os.path.join(
-                        args.imagepath,
-                        "RACS_{}*I.fits".format(field),
-                    )
-                )
+                glob.glob(os.path.join(args.imagepath, "RACS_{}*I.fits".format(field),))
             )
             rmsmaps = [f.replace("I.fits", "I_rms.fits") for f in files]
             if "STOKESI_IMAGES" in args.imagepath:
@@ -335,8 +391,7 @@ def main():
             files = sorted(
                 glob.glob(
                     os.path.join(
-                        args.imagepath,
-                        "*VAST_{}*restored.fits".format(field),
+                        args.imagepath, "*VAST_{}*restored.fits".format(field),
                     )
                 )
             )
