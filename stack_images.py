@@ -8,7 +8,7 @@ import tempfile
 import pandas
 import re
 import xlrd
-from astropy import units as u, constants as c
+from astropy import units as u
 from astropy.table import Table
 from astropy.io import fits
 from astropy.wcs import WCS, FITSFixedWarning
@@ -17,16 +17,19 @@ from astropy.nddata import Cutout2D
 from astropy import log
 import warnings
 
-table_names={'tiles': {'position': "Positional Offsets Tiles",
-                       'flux': "Flux Ratios Tiles"},
-             "combined": {'position': "Positional Offsets Combined",
-                               'flux': "Flux Ratios Combined"},}
-column_names = {'ra': 'ra_offset_median',
-                'dec': 'dec_offset_median',
-                'flux_offset': 'flux_ratio_fitted_offset',
-                'flux_gradient': 'flux_ratio_fitted_gradient'}
+table_names = {
+    "tiles": "Tile Corrections",
+    "combined": "Combined Corrections",
+}
+column_names = {
+    "ra": "ra_correction",
+    "dec": "dec_correction",
+    "flux_offset": "flux_peak_correction_additive",
+    "flux_scale": "flux_peak_correction_multiplicative",
+}
 
-warnings.filterwarnings("ignore",category=FITSFixedWarning)
+warnings.filterwarnings("ignore", category=FITSFixedWarning)
+
 
 def shift_and_scale_image(
     imagename,
@@ -37,6 +40,7 @@ def shift_and_scale_image(
     ra_offset=0,
     dec_offset=0,
     subimage=None,
+    squeeze_output=False,
 ):
     """
     outimage,outweight = shift_and_scale_image(
@@ -48,6 +52,7 @@ def shift_and_scale_image(
     ra_offset=0,
     dec_offset=0,
     subimage=None,
+    squeeze_output=False,
     )
 
     flux_offset in Jy
@@ -61,17 +66,17 @@ def shift_and_scale_image(
 
     fimg = fits.open(imagename)
     frms = fits.open(rmsimagename)
-    if fimg[0].header['NAXIS']==4:
-        fimg[0].data=fimg[0].data[0,0]
-        frms[0].data=frms[0].data[0,0]        
+
     # do the flux scaling
-    fimg[0].data = (fimg[0].data - flux_offset) / flux_scale
+    fimg_ndim = fimg[0].data.ndim
+    fimg[0].data = flux_scale * (fimg[0].data + flux_offset)
     fimg[0].header["FLUXOFF"] = flux_offset
     fimg[0].header["FLUXSCL"] = flux_scale
-    frms[0].data = (frms[0].data) / flux_scale
+    frms_ndim = frms[0].data.ndim
+    frms[0].data = flux_scale * (frms[0].data)
     frms[0].header["FLUXOFF"] = flux_offset
     frms[0].header["FLUXSCL"] = flux_scale
-    w = WCS(fimg[0].header,naxis=2)
+    w = WCS(fimg[0].header)
     # add the offsets to correct the positions
     # use SkyCoord to handle units and wraps
     # the new coordinates should be old coordintes + offset
@@ -80,7 +85,7 @@ def shift_and_scale_image(
         crval.ra + ra_offset * u.arcsec / np.cos(crval.dec),
         crval.dec + dec_offset * u.arcsec,
     )
-    w.wcs.crval = np.array([crval_offset.ra.value, crval_offset.dec.value])
+    w.wcs.crval[0:2] = np.array([crval_offset.ra.deg, crval_offset.dec.deg])
     newheader = w.to_header()
     # update the header with the new WCS
     fimg[0].header.update(newheader)
@@ -92,14 +97,22 @@ def shift_and_scale_image(
     frms[0].header["DECOFF"] = dec_offset
 
     if subimage is not None and subimage >= 0:
-        center = [int(x / 2.0) for x in fimg[0].data.shape]
+        center = [int(x / 2.0) for x in fimg[0].data.shape[-2:]]  # last 2 axis
         log.debug(
-            "Extracting subimage of size [{:d},{:d}] around [{:d},{:d}]".format(
-                subimage, subimage, center[0], center[1]
-            )
+            "Extracting subimage of size [%d,%d] around [%d,%d]"
+            % (subimage, subimage, center[0], center[1])
         )
-        cutout = Cutout2D(fimg[0].data, center, [subimage, subimage], wcs=w)
-        cutout_rms = Cutout2D(frms[0].data, center, [subimage, subimage], wcs=w)
+        cutout = Cutout2D(fimg[0].data.squeeze(), center, subimage, wcs=w.celestial)
+        cutout_rms = Cutout2D(frms[0].data.squeeze(), center, subimage, wcs=w.celestial)
+        # replace original data, adding singleton Stokes, Freq dims if necessary
+        if not squeeze_output:
+            cutout.data = np.expand_dims(
+                cutout.data, axis=[i for i in range(fimg_ndim - cutout.data.ndim)]
+            )
+            cutout_rms.data = np.expand_dims(
+                cutout_rms.data,
+                axis=[i for i in range(frms_ndim - cutout_rms.data.ndim)],
+            )
         fimg[0].data = cutout.data
         frms[0].data = cutout_rms.data
 
@@ -107,6 +120,8 @@ def shift_and_scale_image(
         newheader = cutout.wcs.to_header()
         fimg[0].header.update(newheader)
         frms[0].header.update(newheader)
+        fimg[0].header.remove("WCSAXES", ignore_missing=True, remove_all=True)
+        frms[0].header.remove("WCSAXES", ignore_missing=True, remove_all=True)
 
     if os.path.exists(outname):
         os.remove(outname)
@@ -129,7 +144,9 @@ def swarp_files(files, output_file, output_weight, headerinfo={}):
     cmd += " -COMBINE Y -COMBINE_TYPE WEIGHTED -SUBTRACT_BACK N -WRITE_XML N"
     cmd += " -FSCALASTRO_TYPE NONE"
     cmd += " -WEIGHT_TYPE MAP_RMS -WEIGHT_SUFFIX .weight.fits -RESCALE_WEIGHTS Y"
-    cmd += " -PROJECTION_TYPE SIN "  # -CENTER_TYPE MANUAL -CENTER %s -IMAGE_SIZE %d,%d -PIXELSCALE_TYPE MANUAL -PIXEL_SCALE %.1f " %(dir_str, nx, ny, ps)
+    cmd += " -PROJECTION_TYPE SIN"
+    # cmd += " -CENTER_TYPE MANUAL -CENTER %s -IMAGE_SIZE %d,%d" % (dir_str, nx, ny)
+    # cmd += " -PIXELSCALE_TYPE MANUAL -PIXEL_SCALE %.1f" % ps
     cmd += " %s" % (",".join(files))
 
     log.info("Running:\n\t%s" % cmd)
@@ -140,10 +157,10 @@ def swarp_files(files, output_file, output_weight, headerinfo={}):
     logfile = tempfile.TemporaryFile(mode="w", prefix="swarp")
     for line in p.stderr:
         line_str = line.decode("utf-8")
-        if not "line:" in line_str:
+        if "line:" not in line_str:
             logfile.write(line_str)
         if "-------------- File" in line_str:
-            currentimage = line_str.split()[-1].replace(":", "")
+            _ = line_str.split()[-1].replace(":", "")
             imagenum += 1
             log.info("Working on image %04d/%04d..." % (imagenum, len(files)))
         if "Co-adding frames" in line_str:
@@ -151,10 +168,10 @@ def swarp_files(files, output_file, output_weight, headerinfo={}):
     logfile.close()
     # update header
     if os.path.exists(output_file):
-        f=fits.open(output_file,mode='update')
-        f[0].header['BUNIT']='Jy/beam'
+        f = fits.open(output_file, mode="update")
+        f[0].header["BUNIT"] = "Jy/beam"
         for k in headerinfo:
-            f[0].header[k]=headerinfo[k]
+            f[0].header[k] = headerinfo[k]
         f.flush()
     return os.path.exists(output_file) and os.path.exists(output_weight)
 
@@ -165,9 +182,18 @@ def main():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
-    parser.add_argument("fields", nargs="+", type=str, help="Field name(s)")
     parser.add_argument(
-        "-o", "--out", default="temp", type=str, help="Ouptut directory",
+        "fields",
+        nargs="+",
+        type=str,
+        help="Field name(s) without survey prefix. e.g. 0012+00A.",
+    )
+    parser.add_argument(
+        "-o",
+        "--out",
+        default="temp",
+        type=str,
+        help="Ouptut directory",
     )
     parser.add_argument(
         "-i",
@@ -188,13 +214,13 @@ def main():
         default=None,
         type=float,
         help="Flux offset [mJy] (default is to use the QC file)",
-        )
+    )
     parser.add_argument(
         "--scale",
         default=None,
         type=float,
         help="Flux scaling (default is to use the QC file)",
-        )
+    )
     parser.add_argument(
         "-s",
         "--subimage",
@@ -214,7 +240,7 @@ def main():
         default=None,
         type=str,
         help="Suffix for output images [default=None]",
-        )
+    )
     parser.add_argument(
         "-c",
         "--clean",
@@ -227,16 +253,25 @@ def main():
         default=False,
         action="store_true",
         help="Do not use flux offset?",
-        )
+    )
     parser.add_argument(
         "--type",
-        dest='imagetype',
+        dest="imagetype",
         default="tiles",
-        choices=["tiles","combined"],
+        choices=["tiles", "combined"],
         help="Type of images to combine",
-        )
+    )
     parser.add_argument(
         "-v", "--verbosity", action="count", help="Increase output verbosity"
+    )
+    parser.add_argument(
+        "--squeeze",
+        default=False,
+        action="store_true",
+        help=(
+            "Squeeze output image dimensions to celestial axes only, removing singleton "
+            "axes (e.g. frequency, Stokes). Default is to match the input image."
+        ),
     )
 
     args = parser.parse_args()
@@ -245,101 +280,138 @@ def main():
     elif args.verbosity >= 2:
         log.setLevel("DEBUG")
 
-    log.debug("Running\n\t%s" % " ".join(map(str,sys.argv)))
-        
+    log.debug("Running\n\t%s" % " ".join(map(str, sys.argv)))
+
     if not os.path.exists(args.qc):
-        raise FileError("Cannot open VAST QC file '%s'" % args.qc)
+        raise FileNotFoundError("Cannot open VAST QC file '%s'" % args.qc)
 
     try:
-        table_offsets = Table.from_pandas( pandas.read_excel(args.qc, sheet_name = table_names[args.imagetype]['position']))
+        table_corrections = Table.from_pandas(
+            pandas.read_excel(
+                args.qc, sheet_name=table_names[args.imagetype], engine="openpyxl"
+            )
+        )
+        # remove survey prefix from corrections table field names
+        table_corrections["field"] = np.array(
+            np.char.split(table_corrections["field"].astype(np.str_), "_").tolist()
+        )[:, 1]
     except xlrd.biffh.XLRDError:
-        log.warning("Unable to read table '{}' from sheet '{}': ignoring positional offsets".format(table_names[args.imagetype]['position'],
-                                                                                                    args.qc))
-        table_offsets = None
-    try:
-        table_fluxes = Table.from_pandas( pandas.read_excel(args.qc, sheet_name = table_names[args.imagetype]['flux']))
-    except xlrd.biffh.XLRDError:
-        log.warning("Unable to read table '{}' from sheet '{}': ignoring flux scalings".format(table_names[args.imagetype]['flux'],
-                                                                                               args.qc))
-        table_fluxes = None
-        
+        log.warning(
+            "Unable to read table '%s' from sheet '%s'"
+            % (table_names[args.imagetype], args.qc)
+        )
+        table_corrections = None
+
     if not (os.path.exists(args.out) and os.path.isdir(args.out)):
         log.info("Creating output directory '%s'" % args.out)
         os.mkdir(args.out)
 
     todelete = []
     for field in args.fields:
-        if args.imagetype == 'combined':
+        if args.imagetype == "combined":
             files = sorted(
-                glob.glob(os.path.join(args.imagepath, "VAST_{}*I.fits".format(field),))
+                glob.glob(
+                    os.path.join(
+                        args.imagepath,
+                        "VAST_{}*I.fits".format(field),
+                    )
+                )
             ) + sorted(
-            glob.glob(os.path.join(args.imagepath, "RACS_{}*I.fits".format(field),))
+                glob.glob(
+                    os.path.join(
+                        args.imagepath,
+                        "RACS_{}*I.fits".format(field),
+                    )
+                )
             )
             rmsmaps = [f.replace("I.fits", "I_rms.fits") for f in files]
             if "STOKESI_IMAGES" in args.imagepath:
-                rmsmaps = [f.replace("STOKESI_IMAGES", "STOKESI_RMSMAPS") for f in rmsmaps]
-        elif args.imagetype == 'tiles':
+                rmsmaps = [
+                    f.replace("STOKESI_IMAGES", "STOKESI_RMSMAPS") for f in rmsmaps
+                ]
+        elif args.imagetype == "tiles":
             # this is VAST and not RACS
             # because we don't have RACS RMS maps
-            files = sorted(glob.glob(os.path.join(args.imagepath,"*VAST_{}*restored.fits".format(field),)))
-            rmsmaps = [f.replace("image.i","noiseMap.image.i") for f in files]
+            files = sorted(
+                glob.glob(
+                    os.path.join(
+                        args.imagepath,
+                        "*VAST_{}*restored.fits".format(field),
+                    )
+                )
+            )
+            rmsmaps = [f.replace("image.i", "noiseMap.image.i") for f in files]
             if "STOKESI_IMAGES" in args.imagepath:
-                rmsmaps = [f.replace("STOKESI_IMAGES", "STOKESI_RMSMAPS") for f in rmsmaps]
-            
-        log.info("Found {} images for field {}".format(len(files), field))
-        log.debug("Images: {}".format(",".join(files)))
-        
+                rmsmaps = [
+                    f.replace("STOKESI_IMAGES", "STOKESI_RMSMAPS") for f in rmsmaps
+                ]
+
+        log.info("Found %d images for field %s" % (len(files), field))
+        log.debug("Images: %s" % ",".join(files))
+
         # go through and make temporary files with the scales and offsets applied
         # also make the weight maps ~ rms**2
         scaledfiles = []
         headerinfo = {}
         for i, (filename, rmsmap) in enumerate(zip(files, rmsmaps)):
-            headerinfo['IMG%02d' % i] = (filename,"Filename for image %02d" % i)
-            headerinfo['RMS%02d' % i] = (rmsmap,"RMS Map name for image %02d" % i)
+            headerinfo["IMG%02d" % i] = (filename, "Filename for image %02d" % i)
+            headerinfo["RMS%02d" % i] = (rmsmap, "RMS Map name for image %02d" % i)
             # might need to make this more robust
             # this is the name of the epoch in the QC table
-            match = re.match(r'EPOCH(\d{2})(x?)',filename)
+            # search for the EPOCH string in the entire file path
+            # Combined images contain the epoch in the path and filename, tile images
+            # contain the epoch in the path.
+            match = re.search(r"EPOCH(\d{2})(x?)", filename)
             if match is None:
-                log.error("Cannot infer epoch number from file '{}'".format(filename))
-                next
-            epoch = match.group().replace("EPOCH", "vastp").replace("p0", "p")
-            log.debug("Infered '{}' for file '{}': will look up QC for '{}'".format(match.group(),
-                                                                                    filename,
-                                                                                    epoch))
-            if table_fluxes is not None:
-                # corrected flux = (raw flux - offset) / gradient
-                flux_scale = table_fluxes[
-                    (table_fluxes["image"] == field) & (table_fluxes["epoch"] == epoch)
-                ][column_names['flux_gradient']]
+                log.error("Cannot infer epoch number from file '%s'" % filename)
+                continue
+            epoch = match.group()
+            log.debug(
+                "Infered '%s' for file '%s': will look up QC for '%s'"
+                % (match.group(), filename, epoch)
+            )
+            if table_corrections is not None:
+                table_corrections_mask = (table_corrections["field"] == field) & (
+                    table_corrections["release_epoch"] == epoch
+                )
+
+                # positions
+                # corrected <ra|dec> = <ra|dec> + <ra|dec>_correction
+                ra_offset = table_corrections[table_corrections_mask][
+                    column_names["ra"]
+                ]
+                dec_offset = table_corrections[table_corrections_mask][
+                    column_names["dec"]
+                ]
+
+                # fluxes
+                # corrected flux = flux_scale * (raw flux + flux_offset)
+                flux_scale = table_corrections[table_corrections_mask][
+                    column_names["flux_scale"]
+                ]
                 # original offsets are in mJy
                 flux_offset = (
-                    table_fluxes[
-                        (table_fluxes["image"] == field) & (table_fluxes["epoch"] == epoch)
-                    ][column_names['flux_offset']]
+                    table_corrections[table_corrections_mask][
+                        column_names["flux_offset"]
+                    ]
                     * 1e-3
                 )
             else:
+                ra_offset = np.zeros(1)
+                dec_offset = np.zeros(1)
                 flux_offset = np.zeros(1)
                 flux_scale = np.ones(1)
+
             if args.nooffset:
                 log.debug("Setting offset to 0...")
                 flux_offset = np.zeros(len(flux_offset))
             if args.offset is not None:
-                log.debug("Setting offset to {:.3f} mJy...".format(args.offset))
-                flux_offset = np.ones(len(flux_offset))*args.offset
+                log.debug("Setting offset to %.3f mJy..." % args.offset)
+                flux_offset = np.ones(len(flux_offset)) * args.offset
             if args.scale is not None:
-                log.debug("Setting scale to {:.3f}...".format(args.scale))
-                flux_scale = np.ones(len(flux_offset))*args.scale                
-            if table_offsets is not None:
-                ra_offset = table_offsets[
-                    (table_offsets["image"] == field) & (table_offsets["epoch"] == epoch)
-                ][column_names['ra']]
-                dec_offset = table_offsets[
-                    (table_offsets["image"] == field) & (table_offsets["epoch"] == epoch)
-                ][column_names['dec']]
-            else:
-                ra_offset = np.zeros(1)
-                dec_offset = np.zeros(1)
+                log.debug("Setting scale to %.3f..." % args.scale)
+                flux_scale = np.ones(len(flux_offset)) * args.scale
+
             if (
                 len(flux_scale) == 1
                 and len(flux_offset) == 1
@@ -350,22 +422,32 @@ def main():
                 flux_offset = flux_offset[0]
                 ra_offset = ra_offset[0]
                 dec_offset = dec_offset[0]
-
             else:
                 log.warning(
-                    "Could not find entries for Field {} and epoch {}; assuming unity scale/0 offset".format(
-                        field, epoch
+                    (
+                        "Could not find entries for Field %s and epoch %s; "
+                        "assuming unity scale/0 offset"
                     )
+                    % (field, epoch)
                 )
                 flux_scale = 1
                 flux_offset = 0
                 ra_offset = 0
                 dec_offset = 0
-            headerinfo['RAOFF%02d' % i] = (ra_offset,"[ARCSEC] RA Offset for image %02d" % i)
-            headerinfo['DECOFF%02d' % i] = (dec_offset,"[ARCSEC] DEC Offset for image %02d" % i)
-            headerinfo['FLXSCL%02d' % i] = (flux_scale,"Flux scale for image %02d" % i)
-            headerinfo['FLXOFF%02d' % i] = (flux_offset,"[Jy] Flux offset for image %02d" % i)
-            
+            headerinfo["RAOFF%02d" % i] = (
+                ra_offset,
+                "[ARCSEC] RA Offset for image %02d" % i,
+            )
+            headerinfo["DECOFF%02d" % i] = (
+                dec_offset,
+                "[ARCSEC] DEC Offset for image %02d" % i,
+            )
+            headerinfo["FLXSCL%02d" % i] = (flux_scale, "Flux scale for image %02d" % i)
+            headerinfo["FLXOFF%02d" % i] = (
+                flux_offset,
+                "[Jy] Flux offset for image %02d" % i,
+            )
+
             outname, outweight = shift_and_scale_image(
                 filename,
                 rmsmap,
@@ -375,20 +457,23 @@ def main():
                 ra_offset=ra_offset,
                 dec_offset=dec_offset,
                 subimage=args.subimage,
+                squeeze_output=args.squeeze,
             )
 
-            log.info("Wrote {} and {}".format(outname, outweight))
+            log.info("Wrote %s and %s" % (outname, outweight))
             todelete.append(outname)
             todelete.append(outweight)
             scaledfiles.append(outname)
-            
+
         output_file = os.path.join(args.out, "{}_mosaic.fits".format(field))
         output_weight = output_file.replace("_mosaic.fits", "_weight.fits")
 
-        if (args.suffix is not None) and (len(args.suffix)>0):
-            output_file=output_file.replace(".fits","_{}.fits".format(args.suffix))
-            output_weight=output_weight.replace(".fits","_{}.fits".format(args.suffix))
-        
+        if (args.suffix is not None) and (len(args.suffix) > 0):
+            output_file = output_file.replace(".fits", "_{}.fits".format(args.suffix))
+            output_weight = output_weight.replace(
+                ".fits", "_{}.fits".format(args.suffix)
+            )
+
         if args.progressive:
             istart = 0
             for iend in range(istart + 1, len(files)):
@@ -398,22 +483,24 @@ def main():
                 )
                 output_weight_step = output_file_step.replace("_mosaic", "_weight")
                 result = swarp_files(
-                    scaledfiles[istart:iend], output_file_step, output_weight_step, headerinfo                    
+                    scaledfiles[istart:iend],
+                    output_file_step,
+                    output_weight_step,
+                    headerinfo,
                 )
                 if result:
-                    log.info(
-                        "Wrote {} and {}".format(output_file_step, output_weight_step)
-                    )
+                    log.info("Wrote %s and %s" % (output_file_step, output_weight_step))
 
         # to get swarp:
         # module use /sharedapps/LS/cgca/modulefiles/
         # module load swarp
-        result = swarp_files(scaledfiles, output_file, output_weight, headerinfo=headerinfo)
+        result = swarp_files(
+            scaledfiles, output_file, output_weight, headerinfo=headerinfo
+        )
         if result:
-            log.info("Wrote {} and {}".format(output_file, output_weight))
+            log.info("Wrote %s and %s" % (output_file, output_weight))
         else:
-            log.warning("Error writing {} and {}".format(output_file, output_weight))
-
+            log.warning("Error writing %s and %s" % (output_file, output_weight))
 
         if args.clean:
             for filename in todelete:
