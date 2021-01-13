@@ -328,9 +328,6 @@ def main():
         help="Type of images to combine",
     )
     parser.add_argument(
-        "-v", "--verbosity", action="count", help="Increase output verbosity"
-    )
-    parser.add_argument(
         "--squeeze",
         default=False,
         action="store_true",
@@ -338,6 +335,16 @@ def main():
             "Squeeze output image dimensions to celestial axes only, removing singleton "
             "axes (e.g. frequency, Stokes). Default is to match the input image."
         ),
+    )
+    parser.add_argument(
+        "-b",
+        "--beam",
+        action="store_true",
+        default=False,
+        help="Compute median synthesized beam with Aegean?",
+    )
+    parser.add_argument(
+        "-v", "--verbosity", action="count", help="Increase output verbosity"
     )
 
     args = parser.parse_args()
@@ -556,6 +563,23 @@ def main():
             log.info("Wrote %s and %s" % (output_file, output_weight))
         else:
             log.warning("Error writing %s and %s" % (output_file, output_weight))
+
+        if args.beam:
+            BMAJ, BMIN, BPA = measure_beamsize(output_file, clean=args.clean)
+            if BMAJ is not None:
+                f = fits.open(output_file, mode="update")
+                f[0].header["BMAJ"] = (BMAJ.to(u.deg).value, "Median BMAJ")
+                f[0].header["BMIN"] = (BMIN.to(u.deg).value, "Median BMIN")
+                f[0].header["BPA"] = (BPA.to(u.deg).value, "Median BPA")
+                f.flush()
+                log.info(
+                    "Updated BMAJ = {:.4f} deg, BMIN = {:.4f} deg, BPA = {:.1f} deg in {}".format(
+                        BMAJ.to(u.deg).value,
+                        BMIN.to(u.deg).value,
+                        BPA.to(u.deg).value,
+                        output_file,
+                    )
+                )
 
         if args.clean:
             for filename in todelete:
