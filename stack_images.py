@@ -181,14 +181,16 @@ def swarp_files(files, output_file, output_weight, headerinfo={}):
     return os.path.exists(output_file) and os.path.exists(output_weight)
 
 
-def measure_beamsize(image, default_beam=15 * u.arcsec, clean=True):
+def measure_beamsize(image, weight = None, default_beam=15 * u.arcsec, weightthreshratio = 10, clean=True):
     """
-    BMAJ, BMIN, BPA = measure_beamsize(image, default_beam = 15*u.arcsec, clean=True)
+    BMAJ, BMIN, BPA = measure_beamsize(image, weight = None, default_beam = 15*u.arcsec, weightthreshratio = 10, clean=True)
 
     use Aegean to find and measure sources
     return the median major axis, minor axis, and position angle
 
     will create BANE background and rms images.   If clean, will delete them after.
+    looks at weight image (if supplied).
+    Sets a threshold of median(weight)/weightthreshratio for good sources
     """
 
     import AegeanTools
@@ -235,6 +237,8 @@ def measure_beamsize(image, default_beam=15 * u.arcsec, clean=True):
         log.error("Aegean did not find any sources")
         return None, None, None
     log.info("Aegean found {} sources".format(len(found)))
+    ra = []
+    dec = []
     a = []
     b = []
     pa = []
@@ -242,11 +246,30 @@ def measure_beamsize(image, default_beam=15 * u.arcsec, clean=True):
         a.append(s.a)
         b.append(s.b)
         pa.append(s.pa)
+        ra.append(s.ra)
+        dec.append(s.dec)
     a = np.array(a) * u.arcsec
     b = np.array(b) * u.arcsec
     pa = np.array(pa) * u.deg
-    print("a median/rms: {}, {}".format(np.median(a),np.std(a)))
-    print("b median/rms: {}, {}".format(np.median(b),np.std(b)))
+    ra = np.array(ra)
+    dec = np.array(dec)
+    if weight is not None:
+        # we need to look at the weight image to eliminate bad sources around the edges
+        fw = fits.open(weight)
+        dw=fw[0].data
+        dw=dw[dw>0]
+        medweight = np.median(dw)
+        # threshold 
+        weightthresh = medweight / weightthreshratio
+        x,y=w.all_world2pix(ra,dec,0)
+        weightval = fw[0].data[np.int16(y),np.int16(x)]
+        good = weightval > weightthresh
+        log.info("Found {} sources above weight threshold of {:.2e}".format(good.sum(),
+                                                                            weightthresh))
+        a = a[good]
+        b = b[good]
+        pa = pa[good]
+        
     if clean:
         os.remove(bkg_image)
         os.remove(rms_image)
