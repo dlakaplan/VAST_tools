@@ -595,7 +595,7 @@ def main():
             log.warning("Error writing %s and %s" % (output_file, output_weight))
 
         if args.beam:
-            BMAJ, BMIN, BPA = measure_beamsize(output_file, clean=args.clean)
+            BMAJ, BMIN, BPA = measure_beamsize(output_file, output_weight, clean=args.clean)
             if BMAJ is not None:
                 f = fits.open(output_file, mode="update")
                 f[0].header["BMAJ"] = (BMAJ.to(u.deg).value, "Median BMAJ")
