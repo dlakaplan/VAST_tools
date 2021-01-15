@@ -181,7 +181,7 @@ def swarp_files(files, output_file, output_weight, headerinfo={}):
     return os.path.exists(output_file) and os.path.exists(output_weight)
 
 
-def measure_beamsize(image, weight = None, default_beam=15 * u.arcsec, weightthreshratio = 10, clean=True):
+def measure_beamsize(image, weight = None, default_beam=5 * u.arcsec, weightthreshratio = 10, clean=True):
     """
     BMAJ, BMIN, BPA = measure_beamsize(image, weight = None, default_beam = 15*u.arcsec, weightthreshratio = 10, clean=True)
 
