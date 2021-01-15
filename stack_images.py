@@ -197,7 +197,7 @@ def measure_beamsize(image, weight = None, default_beam=5 * u.arcsec, weightthre
     from AegeanTools.source_finder import SourceFinder
     from AegeanTools.wcs_helpers import Beam
     from AegeanTools.BANE import filter_image
-    
+
     basename = os.path.splitext(image)[0]
 
     # figure out the number of pixels per synthesized beam
@@ -256,20 +256,20 @@ def measure_beamsize(image, weight = None, default_beam=5 * u.arcsec, weightthre
     if weight is not None:
         # we need to look at the weight image to eliminate bad sources around the edges
         fw = fits.open(weight)
-        dw=fw[0].data
-        dw=dw[dw>0]
+        dw = fw[0].data
+        dw = dw[dw > 0]
         medweight = np.median(dw)
-        # threshold 
+        # threshold
         weightthresh = medweight / weightthreshratio
-        x,y=w.all_world2pix(ra,dec,0)
-        weightval = fw[0].data[np.int16(y),np.int16(x)]
+        x, y = w.all_world2pix(ra, dec, 0)
+        weightval = fw[0].data[np.int16(y), np.int16(x)]
         good = weightval > weightthresh
         log.info("Found {} sources above weight threshold of {:.2e}".format(good.sum(),
                                                                             weightthresh))
         a = a[good]
         b = b[good]
         pa = pa[good]
-        
+
     if clean:
         os.remove(bkg_image)
         os.remove(rms_image)
