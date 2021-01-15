@@ -1,0 +1,4 @@
+vasttools @ git+https://github.com/askap-vast/vast-tools.git@v2.0.0-rc.5
+xlrd
+openpyxl
+AegeanTools
