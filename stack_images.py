@@ -15,6 +15,7 @@ from astropy.wcs import WCS, FITSFixedWarning
 from astropy.coordinates import SkyCoord
 from astropy.nddata import Cutout2D
 from astropy import log
+from racs_tools import beamcon_2D
 import warnings
 
 table_names = {
@@ -181,7 +182,9 @@ def swarp_files(files, output_file, output_weight, headerinfo={}):
     return os.path.exists(output_file) and os.path.exists(output_weight)
 
 
-def measure_beamsize(image, weight = None, default_beam=5 * u.arcsec, weightthreshratio = 10, clean=True):
+def measure_beamsize(
+    image, weight=None, default_beam=5 * u.arcsec, weightthreshratio=10, clean=True
+):
     """
     BMAJ, BMIN, BPA = measure_beamsize(image, weight = None, default_beam = 15*u.arcsec, weightthreshratio = 10, clean=True)
 
@@ -264,8 +267,11 @@ def measure_beamsize(image, weight = None, default_beam=5 * u.arcsec, weightthre
         x, y = w.all_world2pix(ra, dec, 0)
         weightval = fw[0].data[np.int16(y), np.int16(x)]
         good = weightval > weightthresh
-        log.info("Found {} sources above weight threshold of {:.2e}".format(good.sum(),
-                                                                            weightthresh))
+        log.info(
+            "Found {} sources above weight threshold of {:.2e}".format(
+                good.sum(), weightthresh
+            )
+        )
         a = a[good]
         b = b[good]
         pa = pa[good]
@@ -367,6 +373,20 @@ def main():
         ),
     )
     parser.add_argument(
+        "--nosmooth",
+        dest="smooth",
+        action="store_false",
+        default=True,
+        help="Do not smooth the input images to a common resolution",
+    )
+    parser.add_argument(
+        "--convmode",
+        default="robust",
+        choices=["robust", "scipy", "astropy", "astropy_fft"],
+        help="Convolution mode",
+    )
+
+    parser.add_argument(
         "-b",
         "--beam",
         action="store_true",
@@ -444,6 +464,7 @@ def main():
         # go through and make temporary files with the scales and offsets applied
         # also make the weight maps ~ rms**2
         scaledfiles = []
+        weightfiles = []
         headerinfo = {}
         for i, (filename, rmsmap) in enumerate(zip(files, rmsmaps)):
             headerinfo["IMG%02d" % i] = (filename, "Filename for image %02d" % i)
@@ -556,9 +577,63 @@ def main():
             todelete.append(outname)
             todelete.append(outweight)
             scaledfiles.append(outname)
+            weightfiles.append(outweight)
 
         output_file = os.path.join(args.out, "{}_mosaic.fits".format(field))
         output_weight = output_file.replace("_mosaic.fits", "_weight.fits")
+
+        if args.smooth:
+            # convolve up to a single beam size
+            # first, get the beam
+            convolution_mode = "robust"
+            beamsuffix = "smooth"
+            # Find smallest common beam
+            big_beam, allbeams = beamcon_2D.getmaxbeam(files, conv_mode=args.convmode,)
+            log.info("Common beam size is: {}".format(str(big_beam)))
+
+            scaled_smoothed_files = []
+            weight_smoothed_files = []
+            for filename, weightname in zip(scaledfiles, weightfiles):
+                output_scaledfile = filename.replace(
+                    ".fits", ".{}.fits".format(beamsuffix)
+                )
+                output_scaledweight = weightname.replace(
+                    ".weight.fits", ".{}.weight.fits".format(beamsuffix)
+                )
+                datadict = beamcon_2D.getimdata(filename)
+                conbeam, sfactor = beamcon_2D.getbeam(datadict, big_beam)
+                datadict.update(
+                    {"conbeam": conbeam, "final_beam": big_beam, "sfactor": sfactor}
+                )
+                newim = beamcon_2D.smooth(datadict, conv_mode=args.convmode)
+                f = fits.open(filename)
+                f[0].header = datadict["final_beam"].attach_to_header(f[0].header)
+                f[0].data = newim
+                f[0].header["BMSCALE"] = (sfactor, "Beam area scaling factor")
+                f.writeto(output_scaledfile, overwrite=True)
+                log.info("Wrote convolved image to {}".format(output_scaledfile))
+                datadict = beamcon_2D.getimdata(weightname)
+                conbeam, sfactor = beamcon_2D.getbeam(datadict, big_beam)
+                datadict.update(
+                    {"conbeam": conbeam, "final_beam": big_beam, "sfactor": sfactor}
+                )
+                newim = beamcon_2D.smooth(datadict, conv_mode=args.convmode)
+                f = fits.open(weightname)
+                f[0].header = datadict["final_beam"].attach_to_header(f[0].header)
+                f[0].data = newim
+                f[0].header["BMSCALE"] = (sfactor, "Beam area scaling factor")
+                f.writeto(output_scaledweight, overwrite=True)
+                log.info(
+                    "Wrote convolved weight image to {}".format(output_scaledweight)
+                )
+
+                scaled_smoothed_files.append(output_scaledfile)
+                weight_smoothed_files.append(output_scaledweight)
+                todelete.append(output_scaledfile)
+                todelete.append(output_scaledweight)
+
+            scaledfiles = scaled_smoothed_files
+            weightfiles = weight_smoothed_files
 
         if (args.suffix is not None) and (len(args.suffix) > 0):
             output_file = output_file.replace(".fits", "_{}.fits".format(args.suffix))
@@ -595,7 +670,9 @@ def main():
             log.warning("Error writing %s and %s" % (output_file, output_weight))
 
         if args.beam:
-            BMAJ, BMIN, BPA = measure_beamsize(output_file, output_weight, clean=args.clean)
+            BMAJ, BMIN, BPA = measure_beamsize(
+                output_file, output_weight, clean=args.clean
+            )
             if BMAJ is not None:
                 f = fits.open(output_file, mode="update")
                 f[0].header["BMAJ"] = (BMAJ.to(u.deg).value, "Median BMAJ")
