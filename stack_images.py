@@ -182,106 +182,6 @@ def swarp_files(files, output_file, output_weight, headerinfo={}):
     return os.path.exists(output_file) and os.path.exists(output_weight)
 
 
-def measure_beamsize(
-    image, weight=None, default_beam=5 * u.arcsec, weightthreshratio=10, clean=True
-):
-    """
-    BMAJ, BMIN, BPA = measure_beamsize(image, weight = None, default_beam = 15*u.arcsec, weightthreshratio = 10, clean=True)
-
-    use Aegean to find and measure sources
-    return the median major axis, minor axis, and position angle
-
-    will create BANE background and rms images.   If clean, will delete them after.
-    looks at weight image (if supplied).
-    Sets a threshold of median(weight)/weightthreshratio for good sources
-    """
-
-    import AegeanTools
-    from AegeanTools.source_finder import SourceFinder
-    from AegeanTools.wcs_helpers import Beam
-    from AegeanTools.BANE import filter_image
-
-    basename = os.path.splitext(image)[0]
-
-    # figure out the number of pixels per synthesized beam
-    # of course we don't know the synthesized beam, but guess
-    f = fits.open(image)
-    w = WCS(f[0].header)
-    pixels_per_beam = (default_beam / (w.wcs.cd[1, 1] * u.deg)).decompose().value
-    # construct a Beam object
-    default_beam = Beam(default_beam.to(u.deg).value, default_beam.to(u.deg).value, 0)
-    # figure out step/box sizes for BANE
-    # defaults are grid = 4*beam size
-    # and box = 5*grid
-    step_size = (int(pixels_per_beam * 4), int(pixels_per_beam * 4))
-    box_size = (step_size[0] * 5, step_size[1] * 5)
-    # BANE output
-    bkg_image = "{}_bkg.fits".format(basename)
-    rms_image = "{}_rms.fits".format(basename)
-    if os.path.exists(bkg_image):
-        os.remove(bkg_image)
-    if os.path.exists(rms_image):
-        os.remove(rms_image)
-    filter_image(
-        im_name=image, step_size=step_size, box_size=box_size, out_base=basename,
-    )
-    if not os.path.exists(rms_image):
-        log.error("Cannot find BANE output '{}'".format(rms_image))
-        return None, None, None
-    if not os.path.exists(bkg_image):
-        log.error("Cannot find BANE output '{}'".format(bkg_image))
-        return None, None, None
-    log.debug("BANE wrote {}, {}".format(rms_image, bkg_image))
-    sf = SourceFinder()
-    found = sf.find_sources_in_image(
-        image, beam=default_beam, bkgin=bkg_image, rmsin=rms_image
-    )
-    if len(found) == 0:
-        log.error("Aegean did not find any sources")
-        return None, None, None
-    log.info("Aegean found {} sources".format(len(found)))
-    ra = []
-    dec = []
-    a = []
-    b = []
-    pa = []
-    for s in found:
-        a.append(s.a)
-        b.append(s.b)
-        pa.append(s.pa)
-        ra.append(s.ra)
-        dec.append(s.dec)
-    a = np.array(a) * u.arcsec
-    b = np.array(b) * u.arcsec
-    pa = np.array(pa) * u.deg
-    ra = np.array(ra)
-    dec = np.array(dec)
-    if weight is not None:
-        # we need to look at the weight image to eliminate bad sources around the edges
-        fw = fits.open(weight)
-        dw = fw[0].data
-        dw = dw[dw > 0]
-        medweight = np.median(dw)
-        # threshold
-        weightthresh = medweight / weightthreshratio
-        x, y = w.all_world2pix(ra, dec, 0)
-        weightval = fw[0].data[np.int16(y), np.int16(x)]
-        good = weightval > weightthresh
-        log.info(
-            "Found {} sources above weight threshold of {:.2e}".format(
-                good.sum(), weightthresh
-            )
-        )
-        a = a[good]
-        b = b[good]
-        pa = pa[good]
-
-    if clean:
-        os.remove(bkg_image)
-        os.remove(rms_image)
-    return np.median(a).to(u.deg), np.median(b).to(u.deg), np.median(pa)
-
-
 def main():
     log.setLevel("WARNING")
 
@@ -374,24 +274,22 @@ def main():
     )
     parser.add_argument(
         "--nosmooth",
-        dest="smooth",
-        action="store_false",
-        default=True,
+        dest="nosmooth",
+        action="store_true",
+        default=False,
         help="Do not smooth the input images to a common resolution",
     )
     parser.add_argument(
         "--convmode",
         default="robust",
         choices=["robust", "scipy", "astropy", "astropy_fft"],
-        help="Convolution mode",
+        help="Convolution mode for smoothing",
     )
-
     parser.add_argument(
-        "-b",
-        "--beam",
-        action="store_true",
-        default=False,
-        help="Compute median synthesized beam with Aegean?",
+        "--smoothsuffix",
+        default="smooth",
+        dest="convsuffix",
+        help="Suffix for smoothed images",
     )
     parser.add_argument(
         "-v", "--verbosity", action="count", help="Increase output verbosity"
@@ -582,11 +480,11 @@ def main():
         output_file = os.path.join(args.out, "{}_mosaic.fits".format(field))
         output_weight = output_file.replace("_mosaic.fits", "_weight.fits")
 
-        if args.smooth:
+        if not args.nosmooth:
             # convolve up to a single beam size
             # first, get the beam
-            convolution_mode = "robust"
-            beamsuffix = "smooth"
+            convolution_mode = args.convmode
+            beamsuffix = args.convsuffix
             # Find smallest common beam
             big_beam, allbeams = beamcon_2D.getmaxbeam(files, conv_mode=args.convmode,)
             log.info("Common beam size is: {}".format(str(big_beam)))
@@ -671,6 +569,10 @@ def main():
 
             scaledfiles = scaled_smoothed_files
             weightfiles = weight_smoothed_files
+        else:
+            log.warning(
+                "Not smoothing to a common beam: synthesized beam in output may not be correct"
+            )
 
         if (args.suffix is not None) and (len(args.suffix) > 0):
             output_file = output_file.replace(".fits", "_{}.fits".format(args.suffix))
