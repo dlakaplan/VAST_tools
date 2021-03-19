@@ -641,13 +641,22 @@ def main():
                 )
                 newim = beamcon_2D.smooth(datadict, conv_mode=args.convmode)
                 f = fits.open(weightname)
-                f[0].header["ORIGBMAJ"] = f[0].header["BMAJ"]
-                f[0].header["ORIGBMIN"] = f[0].header["BMIN"]
-                f[0].header["ORIGBPA"] = f[0].header["BPA"]
+                f[0].header["ORIGBMAJ"] = (f[0].header["BMAJ"], "[deg] Original BMAJ")
+                f[0].header["ORIGBMIN"] = (f[0].header["BMIN"], "[deg] Original BMIN")
+                f[0].header["ORIGBPA"] = (f[0].header["BPA"], "[deg] Original BPA")
                 f[0].header = datadict["final_beam"].attach_to_header(f[0].header)
-                f[0].header["CONVBMAJ"] = conbeam.major.to(u.deg).value
-                f[0].header["CONVBMIN"] = conbeam.minor.to(u.deg).value
-                f[0].header["CONVBPA"] = conbeam.pa.to(u.deg).value
+                f[0].header["CONVBMAJ"] = (
+                    conbeam.major.to(u.deg).value,
+                    "[deg] Convolving BMAJ",
+                )
+                f[0].header["CONVBMIN"] = (
+                    conbeam.minor.to(u.deg).value,
+                    "[deg] Convolving BMIN",
+                )
+                f[0].header["CONVBPA"] = (
+                    conbeam.pa.to(u.deg).value,
+                    "[deg] Convolving BPA",
+                )
                 f[0].data = newim
                 f[0].header["BMSCALE"] = (sfactor, "Beam area scaling factor")
                 f.writeto(output_scaledweight, overwrite=True)
