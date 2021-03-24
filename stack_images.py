@@ -350,7 +350,7 @@ def main():
             files = sorted(
                 glob.glob(
                     os.path.join(
-                        args.imagepath, "*VAST_{}*restored.fits".format(field),
+                        args.imagepath, "*VAST_{}*restored.*.fits".format(field),
                     )
                 )
             )
