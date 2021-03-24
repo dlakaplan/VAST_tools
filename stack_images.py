@@ -608,24 +608,6 @@ def main():
         else:
             log.warning("Error writing %s and %s" % (output_file, output_weight))
 
-        if args.beam:
-            BMAJ, BMIN, BPA = measure_beamsize(
-                output_file, output_weight, clean=args.clean
-            )
-            if BMAJ is not None:
-                f = fits.open(output_file, mode="update")
-                f[0].header["BMAJ"] = (BMAJ.to(u.deg).value, "Median BMAJ")
-                f[0].header["BMIN"] = (BMIN.to(u.deg).value, "Median BMIN")
-                f[0].header["BPA"] = (BPA.to(u.deg).value, "Median BPA")
-                f.flush()
-                log.info(
-                    "Updated BMAJ = {:.4f} deg, BMIN = {:.4f} deg, BPA = {:.1f} deg in {}".format(
-                        BMAJ.to(u.deg).value,
-                        BMIN.to(u.deg).value,
-                        BPA.to(u.deg).value,
-                        output_file,
-                    )
-                )
 
         if args.clean:
             for filename in todelete:
