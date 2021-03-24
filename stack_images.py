@@ -348,11 +348,19 @@ def main():
             # because we don't have RACS RMS maps
             searchstring = os.path.join(
                         args.imagepath, "*VAST_{}*restored.*.fits".format(field),
-                    )
+                    ) + os.path.join(
+                        args.imagepath, "*RACS_{}*restored.*.fits".format(field),
+                    ) 
             files = sorted(
                 glob.glob(
                     os.path.join(
                         args.imagepath, "*VAST_{}*restored.*.fits".format(field),
+                    )
+                )
+            ) + sorted(
+                glob.glob(
+                    os.path.join(
+                        args.imagepath, "*RACS_{}*restored.*.fits".format(field),
                     )
                 )
             )
