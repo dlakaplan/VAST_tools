@@ -484,7 +484,7 @@ def main():
         output_file = os.path.join(args.out, "{}_mosaic.fits".format(field))
         output_weight = output_file.replace("_mosaic.fits", "_weight.fits")
 
-        if not args.nosmooth:
+        if not args.nosmooth and len(files)>1:
             # convolve up to a single beam size
             # first, get the beam
             convolution_mode = args.convmode
@@ -607,7 +607,7 @@ def main():
         result = swarp_files(
             scaledfiles, output_file, output_weight, headerinfo=headerinfo
         )
-        if not args.nosmooth:
+        if not args.nosmooth and len(files)>1:
             log.debug("Adding final smoothed beam info to header")
             f = fits.open(output_file, mode="update")
             f[0].header = datadict["final_beam"].attach_to_header(f[0].header)            
