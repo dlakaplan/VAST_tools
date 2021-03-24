@@ -207,7 +207,7 @@ def main():
     parser.add_argument(
         "-q",
         "--qc",
-        default="VAST Pilot QC Stats.xlsx",
+        default=None,
         type=str,
         help="VAST Pilot QC file",
     )
@@ -303,25 +303,29 @@ def main():
 
     log.debug("Running\n\t%s" % " ".join(map(str, sys.argv)))
 
-    if not os.path.exists(args.qc):
-        raise FileNotFoundError("Cannot open VAST QC file '%s'" % args.qc)
-
-    try:
-        table_corrections = Table.from_pandas(
-            pandas.read_excel(
-                args.qc, sheet_name=table_names[args.imagetype], engine="openpyxl"
-            )
-        )
-        # remove survey prefix from corrections table field names
-        table_corrections["field"] = np.array(
-            np.char.split(table_corrections["field"].astype(np.str_), "_").tolist()
-        )[:, 1]
-    except xlrd.biffh.XLRDError:
-        log.warning(
-            "Unable to read table '%s' from sheet '%s'"
-            % (table_names[args.imagetype], args.qc)
-        )
+    if args.qc is None:
+        logger.info("No flux/position corrections will be applied")
         table_corrections = None
+    else:
+        if not os.path.exists(args.qc):
+            raise FileNotFoundError("Cannot open VAST QC file '%s'" % args.qc)
+
+        try:
+            table_corrections = Table.from_pandas(
+                pandas.read_excel(
+                    args.qc, sheet_name=table_names[args.imagetype], engine="openpyxl"
+                )
+            )
+            # remove survey prefix from corrections table field names
+            table_corrections["field"] = np.array(
+                np.char.split(table_corrections["field"].astype(np.str_), "_").tolist()
+            )[:, 1]
+        except xlrd.biffh.XLRDError:
+            log.warning(
+                "Unable to read table '%s' from sheet '%s'"
+                % (table_names[args.imagetype], args.qc)
+            )
+            table_corrections = None
 
     if not (os.path.exists(args.out) and os.path.isdir(args.out)):
         log.info("Creating output directory '%s'" % args.out)
