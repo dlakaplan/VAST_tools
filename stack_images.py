@@ -205,11 +205,7 @@ def main():
         help="VAST image directories",
     )
     parser.add_argument(
-        "-q",
-        "--qc",
-        default=None,
-        type=str,
-        help="VAST Pilot QC file",
+        "-q", "--qc", default=None, type=str, help="VAST Pilot QC file",
     )
     parser.add_argument(
         "--offset",
@@ -334,6 +330,9 @@ def main():
     todelete = []
     for field in args.fields:
         if args.imagetype == "combined":
+            searchstring = os.path.join(
+                args.imagepath, "VAST_{}*I.fits".format(field),
+            ) + os.path.join(args.imagepath, "RACS_{}*I.fits".format(field),)
             files = sorted(
                 glob.glob(os.path.join(args.imagepath, "VAST_{}*I.fits".format(field),))
             ) + sorted(
@@ -347,6 +346,9 @@ def main():
         elif args.imagetype == "tiles":
             # this is VAST and not RACS
             # because we don't have RACS RMS maps
+            searchstring = os.path.join(
+                        args.imagepath, "*VAST_{}*restored.*.fits".format(field),
+                    )
             files = sorted(
                 glob.glob(
                     os.path.join(
@@ -359,7 +361,7 @@ def main():
                 rmsmaps = [
                     f.replace("STOKESI_IMAGES", "STOKESI_RMSMAPS") for f in rmsmaps
                 ]
-
+        log.debug("Searching:\n\t{}".format(searchstring))
         log.info("Found %d images for field %s" % (len(files), field))
         log.debug("Images: %s" % ",".join(files))
 
@@ -484,7 +486,7 @@ def main():
         output_file = os.path.join(args.out, "{}_mosaic.fits".format(field))
         output_weight = output_file.replace("_mosaic.fits", "_weight.fits")
 
-        if not args.nosmooth and len(files)>1:
+        if not args.nosmooth and len(files) > 1:
             # convolve up to a single beam size
             # first, get the beam
             convolution_mode = args.convmode
@@ -607,18 +609,16 @@ def main():
         result = swarp_files(
             scaledfiles, output_file, output_weight, headerinfo=headerinfo
         )
-        if not args.nosmooth and len(files)>1:
+        if not args.nosmooth and len(files) > 1:
             log.debug("Adding final smoothed beam info to header")
             f = fits.open(output_file, mode="update")
-            f[0].header = datadict["final_beam"].attach_to_header(f[0].header)            
+            f[0].header = datadict["final_beam"].attach_to_header(f[0].header)
             f.flush()
-        
+
         if result:
             log.info("Wrote %s and %s" % (output_file, output_weight))
         else:
             log.warning("Error writing %s and %s" % (output_file, output_weight))
-
-        
 
         if args.clean:
             for filename in todelete:
