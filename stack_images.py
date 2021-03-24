@@ -304,7 +304,7 @@ def main():
     log.debug("Running\n\t%s" % " ".join(map(str, sys.argv)))
 
     if args.qc is None:
-        logger.info("No flux/position corrections will be applied")
+        log.info("No flux/position corrections will be applied")
         table_corrections = None
     else:
         if not os.path.exists(args.qc):
