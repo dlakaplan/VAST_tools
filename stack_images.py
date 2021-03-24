@@ -607,11 +607,18 @@ def main():
         result = swarp_files(
             scaledfiles, output_file, output_weight, headerinfo=headerinfo
         )
+        if not args.nosmooth:
+            log.debug("Adding final smoothed beam info to header")
+            f = fits.open(output_file, mode="update")
+            f[0].header = datadict["final_beam"].attach_to_header(f[0].header)            
+            f.flush()
+        
         if result:
             log.info("Wrote %s and %s" % (output_file, output_weight))
         else:
             log.warning("Error writing %s and %s" % (output_file, output_weight))
 
+        
 
         if args.clean:
             for filename in todelete:
