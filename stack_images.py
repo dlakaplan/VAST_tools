@@ -288,6 +288,12 @@ def main():
         help="Suffix for smoothed images",
     )
     parser.add_argument(
+        "--noracs",
+        default=False,
+        action="store_true",
+        help="Do not include RACS images",
+    )
+    parser.add_argument(
         "-v", "--verbosity", action="count", help="Increase output verbosity"
     )
 
@@ -332,12 +338,15 @@ def main():
         if args.imagetype == "combined":
             searchstring = os.path.join(
                 args.imagepath, "VAST_{}*I.fits".format(field),
-            ) + os.path.join(args.imagepath, "RACS_{}*I.fits".format(field),)
+            )
             files = sorted(
                 glob.glob(os.path.join(args.imagepath, "VAST_{}*I.fits".format(field),))
-            ) + sorted(
-                glob.glob(os.path.join(args.imagepath, "RACS_{}*I.fits".format(field),))
             )
+            if args.noracs:
+                searchstring+= ", " + os.path.join(args.imagepath, "RACS_{}*I.fits".format(field),)
+                files+= sorted(
+                    glob.glob(os.path.join(args.imagepath, "RACS_{}*I.fits".format(field),))
+                )
             rmsmaps = [f.replace("I.fits", "I_rms.fits") for f in files]
             if "STOKESI_IMAGES" in args.imagepath:
                 rmsmaps = [
@@ -347,23 +356,27 @@ def main():
             # this is VAST and not RACS
             # because we don't have RACS RMS maps
             searchstring = os.path.join(
-                        args.imagepath, "*VAST_{}*restored.*.fits".format(field),
-                    ) + os.path.join(
-                        args.imagepath, "*RACS_{}*restored.*.fits".format(field),
-                    ) 
+                        args.imagepath, "*VAST_{}*restored*.fits".format(field),
+                    )                     
             files = sorted(
                 glob.glob(
                     os.path.join(
-                        args.imagepath, "*VAST_{}*restored.*.fits".format(field),
-                    )
-                )
-            ) + sorted(
-                glob.glob(
-                    os.path.join(
-                        args.imagepath, "*RACS_{}*restored.*.fits".format(field),
+                        args.imagepath, "*VAST_{}*restored*.fits".format(field),
                     )
                 )
             )
+            if args.noracs:
+                searchstring+= ", " + os.path.join(
+                    args.imagepath, "*RACS_{}*restored*.fits".format(field),
+                )
+                files+= sorted(
+                    glob.glob(
+                        os.path.join(
+                            args.imagepath, "*RACS_{}*restored*.fits".format(field),
+                        )
+                    )
+                )
+
             rmsmaps = [f.replace("image.i", "noiseMap.image.i") for f in files]
             if "STOKESI_IMAGES" in args.imagepath:
                 rmsmaps = [
