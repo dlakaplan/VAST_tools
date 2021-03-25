@@ -336,16 +336,18 @@ def main():
     todelete = []
     for field in args.fields:
         if args.imagetype == "combined":
-            searchstring = os.path.join(
-                args.imagepath, "VAST_{}*I.fits".format(field),
-            )
+            searchstring = os.path.join(args.imagepath, "VAST_{}*I.fits".format(field),)
             files = sorted(
                 glob.glob(os.path.join(args.imagepath, "VAST_{}*I.fits".format(field),))
             )
-            if args.noracs:
-                searchstring+= ", " + os.path.join(args.imagepath, "RACS_{}*I.fits".format(field),)
-                files+= sorted(
-                    glob.glob(os.path.join(args.imagepath, "RACS_{}*I.fits".format(field),))
+            if not args.noracs:
+                searchstring += ", " + os.path.join(
+                    args.imagepath, "RACS_{}*I.fits".format(field),
+                )
+                files += sorted(
+                    glob.glob(
+                        os.path.join(args.imagepath, "RACS_{}*I.fits".format(field),)
+                    )
                 )
             rmsmaps = [f.replace("I.fits", "I_rms.fits") for f in files]
             if "STOKESI_IMAGES" in args.imagepath:
@@ -356,8 +358,8 @@ def main():
             # this is VAST and not RACS
             # because we don't have RACS RMS maps
             searchstring = os.path.join(
-                        args.imagepath, "*VAST_{}*restored*.fits".format(field),
-                    )                     
+                args.imagepath, "*VAST_{}*restored*.fits".format(field),
+            )
             files = sorted(
                 glob.glob(
                     os.path.join(
@@ -365,11 +367,11 @@ def main():
                     )
                 )
             )
-            if args.noracs:
-                searchstring+= ", " + os.path.join(
+            if not args.noracs:
+                searchstring += ", " + os.path.join(
                     args.imagepath, "*RACS_{}*restored*.fits".format(field),
                 )
-                files+= sorted(
+                files += sorted(
                     glob.glob(
                         os.path.join(
                             args.imagepath, "*RACS_{}*restored*.fits".format(field),
