@@ -20,6 +20,8 @@ import warnings
 import logging
 
 # this is to allow more complex logging
+# based on:
+#  https://github.com/askap-vast/casdapy/blob/master/casdapy/logging.py#L7-L47
 class StreamHandler(logging.StreamHandler):
     """StreamHandler that prints colour log records. Essentially the same as
     `astropy.logger.StreamHandler` but retains the logging.StreamHandler format
@@ -70,6 +72,7 @@ def shift_and_scale_image(
     dec_offset=0,
     subimage=None,
     squeeze_output=False,
+    replace_nan=True,
 ):
     """
     outimage,outweight = shift_and_scale_image(
@@ -82,6 +85,7 @@ def shift_and_scale_image(
     dec_offset=0,
     subimage=None,
     squeeze_output=False,
+    replace_nan=True,
     )
 
     flux_offset in Jy
@@ -95,7 +99,7 @@ def shift_and_scale_image(
 
     fimg = fits.open(imagename)
     frms = fits.open(rmsimagename)
-
+    
     # do the flux scaling
     fimg_ndim = fimg[0].data.ndim
     fimg[0].data = flux_scale * (fimg[0].data + flux_offset)
@@ -105,6 +109,24 @@ def shift_and_scale_image(
     frms[0].data = flux_scale * (frms[0].data)
     frms[0].header["FLUXOFF"] = flux_offset
     frms[0].header["FLUXSCL"] = flux_scale
+    # check for NaN
+    if replace_nan:
+        if np.any(np.isnan(fimg[0].data)):
+            badpixels = np.isnan(fimg[0].data)
+            log.debug("Replacing {} NaNs with 0".format(badpixels.sum()))
+            # in some cases the size of the RMS image is 2D
+            # and the image itself is 4D
+            if len(frms[0].data.shape)==2 and len(fimg[0].data.shape)==4:
+                badpixels_forrms = np.isnan(fimg[0].data[0,0])
+            else:
+                badpixels_forrms = badpixels
+            frms[0].data[badpixels_forrms] = 0
+            # any additional pixels in the rms image
+            if np.any(np.isnan(frms[0].data)):
+                log.debug("Replacing {} additional NaNs in the rms image with 0".format(np.isnan(frms[0].data).sum()))
+                frms[0].data[np.isnan(frms[0].data)]=0
+            fimg[0].data[badpixels] = 0
+
     w = WCS(fimg[0].header)
     # add the offsets to correct the positions
     # use SkyCoord to handle units and wraps
