@@ -17,6 +17,34 @@ from astropy.nddata import Cutout2D
 from astropy import log
 from racs_tools import beamcon_2D
 import warnings
+import logging
+
+# this is to allow more complex logging
+class StreamHandler(logging.StreamHandler):
+    """StreamHandler that prints colour log records. Essentially the same as
+    `astropy.logger.StreamHandler` but retains the logging.StreamHandler format
+    compatibility (the former enforces a fixed log message format).
+    """
+
+    def emit(self, record):
+        from astropy.utils.console import color_print
+
+        stream = sys.stdout if record.levelno <= logging.INFO else sys.stderr
+        message = self.format(record)
+        if record.levelno < logging.INFO:
+            print(message, file=stream)
+        elif record.levelno < logging.WARNING:
+            color_print(message, "green", file=stream)
+        elif record.levelno < logging.ERROR:
+            color_print(message, "brown", file=stream)
+        else:
+            color_print(message, "red", file=stream)
+        stream.flush()
+
+handler = StreamHandler()
+handler.setFormatter(logging.Formatter(fmt="%(asctime)-15s %(levelname)-8s %(message)s"))
+log.removeHandler(log.handlers[0])
+log.addHandler(handler)
 
 table_names = {
     "tiles": "Tile Corrections",
