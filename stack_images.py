@@ -43,8 +43,11 @@ class StreamHandler(logging.StreamHandler):
             color_print(message, "red", file=stream)
         stream.flush()
 
+
 handler = StreamHandler()
-handler.setFormatter(logging.Formatter(fmt="%(asctime)-15s %(levelname)-8s %(message)s"))
+handler.setFormatter(
+    logging.Formatter(fmt="%(asctime)-15s %(levelname)-8s %(message)s")
+)
 log.removeHandler(log.handlers[0])
 log.addHandler(handler)
 
@@ -99,7 +102,7 @@ def shift_and_scale_image(
 
     fimg = fits.open(imagename)
     frms = fits.open(rmsimagename)
-    
+
     # do the flux scaling
     fimg_ndim = fimg[0].data.ndim
     fimg[0].data = flux_scale * (fimg[0].data + flux_offset)
@@ -116,15 +119,19 @@ def shift_and_scale_image(
             log.debug("Replacing {} NaNs with 0".format(badpixels.sum()))
             # in some cases the size of the RMS image is 2D
             # and the image itself is 4D
-            if len(frms[0].data.shape)==2 and len(fimg[0].data.shape)==4:
-                badpixels_forrms = np.isnan(fimg[0].data[0,0])
+            if len(frms[0].data.shape) == 2 and len(fimg[0].data.shape) == 4:
+                badpixels_forrms = np.isnan(fimg[0].data[0, 0])
             else:
                 badpixels_forrms = badpixels
             frms[0].data[badpixels_forrms] = 0
             # any additional pixels in the rms image
             if np.any(np.isnan(frms[0].data)):
-                log.debug("Replacing {} additional NaNs in the rms image with 0".format(np.isnan(frms[0].data).sum()))
-                frms[0].data[np.isnan(frms[0].data)]=0
+                log.debug(
+                    "Replacing {} additional NaNs in the rms image with 0".format(
+                        np.isnan(frms[0].data).sum()
+                    )
+                )
+                frms[0].data[np.isnan(frms[0].data)] = 0
             fimg[0].data[badpixels] = 0
 
     w = WCS(fimg[0].header)
